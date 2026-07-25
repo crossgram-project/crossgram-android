@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ServerSwitchTitle">Server</string>
+    <string name="ServerSwitchOfficial">Official configuration</string>
+    <string name="ServerSwitchAdd">Add configuration…</string>
+    <string name="ServerSwitchAddTitle">Add server configuration</string>
+    <string name="ServerSwitchClipboard">Read clipboard</string>
+    <string name="ServerSwitchJsonHint">Paste the server configuration JSON here</string>
+    <string name="ServerSwitchError">Server configuration error</string>
+    <string name="ServerSwitchUnknownError">Could not save the server configuration.</string>
+</resources>

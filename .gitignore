@@ -1,0 +1,6 @@
+/.yarn/
+/.pnp.*
+/node_modules/
+/_work/
+/dist/
+/artifacts/

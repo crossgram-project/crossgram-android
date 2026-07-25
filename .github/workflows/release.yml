@@ -1,0 +1,124 @@
+name: Patch and release upstream clients
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish successful APKs to GitHub Releases
+        type: boolean
+        default: true
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crossgram-upstream-release
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.matrix.outputs.build }}
+      publish: ${{ steps.matrix.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: yarn
+      - run: corepack enable && yarn install --immutable
+      - id: matrix
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: yarn discover --github-output "$GITHUB_OUTPUT"
+
+  build:
+    needs: discover
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.discover.outputs.build) }}
+    name: ${{ matrix.id }} · ${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: yarn
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Install native tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build yasm patch ccache
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - run: corepack enable && yarn install --immutable
+      - name: Patch and build five branded APKs
+        env:
+          CROSSGRAM_KEYSTORE_BASE64: ${{ secrets.CROSSGRAM_KEYSTORE_BASE64 }}
+          CROSSGRAM_KEYSTORE_PASSWORD: ${{ secrets.CROSSGRAM_KEYSTORE_PASSWORD }}
+          CROSSGRAM_KEY_ALIAS: ${{ secrets.CROSSGRAM_KEY_ALIAS }}
+          CROSSGRAM_KEY_PASSWORD: ${{ secrets.CROSSGRAM_KEY_PASSWORD }}
+        run: >-
+          bash scripts/ci/build-upstream.sh
+          "${{ matrix.id }}"
+          "${{ matrix.repository }}"
+          "${{ matrix.ref }}"
+          "${{ matrix.version }}"
+          "${{ matrix.variant }}"
+          "${{ matrix.gradleTask }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apk-${{ matrix.id }}-${{ matrix.variant }}
+          path: artifacts/${{ matrix.id }}/${{ matrix.variant }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    if: ${{ always() && (github.event_name == 'schedule' || inputs.publish) }}
+    needs: [discover, build]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.publish) }}
+    name: Publish ${{ matrix.id }} ${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: apk-${{ matrix.id }}-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish all successful architectures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLIENT: ${{ matrix.id }}
+          VERSION: ${{ matrix.version }}
+          UPSTREAM_REPOSITORY: ${{ matrix.repository }}
+          UPSTREAM_REF: ${{ matrix.ref }}
+        run: |
+          shopt -s nullglob
+          files=(release-assets/*.apk release-assets/*.txt)
+          if (( ${#files[@]} == 0 )); then
+            echo "No successful artifacts for $CLIENT; skipping release."
+            exit 0
+          fi
+          safe_version=$(printf '%s' "$VERSION" | tr '/ ' '--')
+          tag="crossgram-${CLIENT}-${safe_version}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "Crossgram ${CLIENT} ${VERSION}" --notes "Patched from ${UPSTREAM_REPOSITORY}@${UPSTREAM_REF}. Includes QQ · Cross, 微信 · Cross, 企业微信 · Cross, 钉钉 · Cross and Discord · Cross builds. Only architectures that built successfully are attached."
+          fi
+          gh release upload "$tag" "${files[@]}" --clobber
