@@ -115,15 +115,38 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     ]) {
       const file = path.join(root, relative);
       const source = await readUtf8(file);
-      if (source.includes("CROSSGRAM_NATIVE_TARGETS")) continue;
-      const matches = [...source.matchAll(/^([ \t]*)build\s+(?:arm64\s+arm|arm\s+arm64)[ \t]*$/gm)];
-      if (matches.length !== 1) {
-        throw new PatchError(relative, `expected one native target list, found ${matches.length}`);
+      let updated = source;
+      if (!updated.includes("CROSSGRAM_NATIVE_TARGETS")) {
+        const matches = [...updated.matchAll(/^([ \t]*)build\s+(?:arm64\s+arm|arm\s+arm64)[ \t]*$/gm)];
+        if (matches.length !== 1) {
+          throw new PatchError(relative, `expected one native target list, found ${matches.length}`);
+        }
+        updated = updated.replace(
+          /^([ \t]*)build\s+(?:arm64\s+arm|arm\s+arm64)[ \t]*$/m,
+          "$1build ${CROSSGRAM_NATIVE_TARGETS:-arm64 arm}",
+        );
       }
-      const updated = source.replace(
-        /^([ \t]*)build\s+(?:arm64\s+arm|arm\s+arm64)[ \t]*$/m,
-        "$1build ${CROSSGRAM_NATIVE_TARGETS:-arm64 arm}",
-      );
+
+      if (relative.endsWith("build_libvpx_clang.sh")) {
+        const flags = [
+          {
+            before: 'OPTIMIZE_CFLAGS="-O3 -march=x86-64 -mtune=intel -msse4.2 -mpopcnt -m64 -fPIC"',
+            after: 'OPTIMIZE_CFLAGS="-O3" # CROSSGRAM NDK-compatible x86_64 flags',
+          },
+          {
+            before: 'OPTIMIZE_CFLAGS="-O3 -march=i686 -mtune=intel -msse3 -mfpmath=sse -m32 -fPIC"',
+            after: 'OPTIMIZE_CFLAGS="-O3" # CROSSGRAM NDK-compatible x86 flags',
+          },
+        ];
+        for (const { before, after } of flags) {
+          if (updated.includes(after)) continue;
+          const count = updated.split(before).length - 1;
+          if (count !== 1) {
+            throw new PatchError(relative, `expected one legacy x86 compiler flag set, found ${count}`);
+          }
+          updated = updated.replace(before, after);
+        }
+      }
       if (await writeUtf8IfChanged(file, updated)) changed.push(relative);
     }
   }

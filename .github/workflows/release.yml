@@ -52,7 +52,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: ${{ matrix.id == 'telegram' && '11' || '17' }}
       - uses: android-actions/setup-android@v3
       - name: Install native tools
         run: |

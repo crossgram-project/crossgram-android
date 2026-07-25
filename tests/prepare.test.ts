@@ -46,4 +46,31 @@ describe("prepareBuild", () => {
     expect(source).toContain("productFlavors.configureEach");
     expect(source).toContain("isEnable = false");
   });
+
+  it("makes Nagram native dependency scripts targetable and NDK-compatible on x86", async () => {
+    const relative = "TMessagesProj/build.gradle";
+    const root = await fixture(relative, "plugins { id 'com.android.application' }\nandroid {}\n");
+    const nativeFiles: Record<string, string> = {
+      "TMessagesProj/jni/build_boringssl.sh": "build arm64 arm\n",
+      "TMessagesProj/jni/build_ffmpeg_clang.sh": "build arm64 arm\n",
+      "TMessagesProj/jni/build_libvpx_clang.sh": [
+        'OPTIMIZE_CFLAGS="-O3 -march=x86-64 -mtune=intel -msse4.2 -mpopcnt -m64 -fPIC"',
+        'OPTIMIZE_CFLAGS="-O3 -march=i686 -mtune=intel -msse3 -mfpmath=sse -m32 -fPIC"',
+        "build arm64 arm",
+        "",
+      ].join("\n"),
+    };
+    for (const [nativeRelative, content] of Object.entries(nativeFiles)) {
+      const file = path.join(root, nativeRelative);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, content, "utf8");
+    }
+
+    await prepareBuild(root, getUpstream("nagram"), "x86_64");
+    const libvpx = await readFile(path.join(root, "TMessagesProj/jni/build_libvpx_clang.sh"), "utf8");
+    expect(libvpx).toContain("build ${CROSSGRAM_NATIVE_TARGETS:-arm64 arm}");
+    expect(libvpx).toContain("CROSSGRAM NDK-compatible x86_64 flags");
+    expect(libvpx).toContain("CROSSGRAM NDK-compatible x86 flags");
+    expect(await prepareBuild(root, getUpstream("nagram"), "x86_64")).toEqual([]);
+  });
 });

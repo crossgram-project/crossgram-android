@@ -14,7 +14,9 @@ OUTPUT_ROOT="$PATCHER_ROOT/artifacts/$CLIENT/$VARIANT"
 
 mkdir -p "$PATCHER_ROOT/upstream" "$OUTPUT_ROOT"
 git clone --depth 1 --branch "$REF" "https://github.com/$REPOSITORY.git" "$SOURCE_ROOT"
-git -C "$SOURCE_ROOT" submodule update --init --recursive
+# Nnngram/Nullgram intentionally keep an optional private Rust submodule that
+# their own public CI skips. It is not enabled by their Android Gradle files.
+git -C "$SOURCE_ROOT" -c submodule."libs/rust".update=none submodule update --init --recursive
 
 cd "$PATCHER_ROOT"
 corepack yarn run patch:source --client "$CLIENT" --source "$SOURCE_ROOT"
