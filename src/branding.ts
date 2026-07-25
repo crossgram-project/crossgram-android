@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { readUtf8, writeBinaryIfChanged, writeUtf8IfChanged } from "./core/files.js";
-import { PatchError, replaceRegexOnce } from "./core/text-edit.js";
+import { PatchError } from "./core/text-edit.js";
 import type { Upstream } from "./upstreams.js";
 
 export type BrandId = "qq" | "wechat" | "wecom" | "dingtalk" | "discord";
@@ -79,7 +79,10 @@ function applicationIdFromGradle(gradle: string, properties: string | undefined,
 }
 
 interface GoogleServicesClient {
-  client_info?: { android_client_info?: { package_name?: string } };
+  client_info?: {
+    android_client_info?: { package_name?: string };
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
@@ -110,6 +113,56 @@ function patchGoogleServices(source: string, baseId: string, brand: Brand, file:
     branded,
   ];
   return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+function placeholderGoogleServices(baseId: string, brand: Brand, file: string): string {
+  const placeholder: GoogleServices = {
+    project_info: {
+      project_number: "0",
+      project_id: "crossgram-placeholder",
+      storage_bucket: "crossgram-placeholder.invalid",
+    },
+    client: [{
+      client_info: {
+        mobilesdk_app_id: "1:0:android:00000000000000000000000000000000",
+        android_client_info: { package_name: baseId },
+      },
+      oauth_client: [],
+      api_key: [{ current_key: "not-configured" }],
+      services: { appinvite_service: { other_platform_oauth_client: [] } },
+    }],
+    configuration_version: "1",
+  };
+  return patchGoogleServices(JSON.stringify(placeholder), baseId, brand, file);
+}
+
+function disablePrivateCrashlyticsUploads(source: string, file: string): string {
+  const native = /^(\s*the<CrashlyticsExtension>\(\)\.nativeSymbolUploadEnabled\s*=\s*)(?:true|isCi)\s*$/m;
+  const nativeMatches = [...source.matchAll(new RegExp(native.source, "gm"))];
+  let updated = source;
+  if (nativeMatches.length === 1) {
+    updated = updated.replace(native, "$1false // CROSSGRAM: private Crashlytics uploads disabled");
+  } else if (nativeMatches.length !== 0 || !source.includes("CROSSGRAM: private Crashlytics uploads disabled")) {
+    throw new PatchError(file, `expected one Crashlytics native upload setting, found ${nativeMatches.length}`);
+  }
+  const mapping = /^(\s*mappingFileUploadEnabled\s*=\s*)isCi\s*$/m;
+  const mappingMatches = [...updated.matchAll(new RegExp(mapping.source, "gm"))];
+  if (mappingMatches.length > 1) {
+    throw new PatchError(file, `expected at most one Crashlytics mapping upload setting, found ${mappingMatches.length}`);
+  }
+  if (mappingMatches.length === 1) {
+    updated = updated.replace(mapping, "$1false // CROSSGRAM: private Crashlytics mapping upload disabled");
+  } else if (!updated.includes("CROSSGRAM: private Crashlytics mapping upload disabled")) {
+    const nativeLine = /^(\s*)the<CrashlyticsExtension>\(\)\.nativeSymbolUploadEnabled\s*=\s*false \/\/ CROSSGRAM: private Crashlytics uploads disabled\s*$/m;
+    if (!nativeLine.test(updated)) {
+      throw new PatchError(file, "could not place the Crashlytics mapping upload override");
+    }
+    updated = updated.replace(
+      nativeLine,
+      "$&\n$1configure<CrashlyticsExtension> {\n$1    mappingFileUploadEnabled = false // CROSSGRAM: private Crashlytics mapping upload disabled\n$1}",
+    );
+  }
+  return updated;
 }
 
 function patchManifest(source: string, file: string): string {
@@ -158,18 +211,27 @@ export async function applyBrand(root: string, upstream: Upstream, brand: Brand)
       googleServicesFile,
       patchGoogleServices(googleServices, baseId, brand, googleServicesRelative),
     )) changed.push(googleServicesRelative);
+    if (googleServices.includes('"project_id": "crossgram-placeholder"')) {
+      const current = await readUtf8(gradleFile);
+      const disabledUploads = disablePrivateCrashlyticsUploads(current, appGradle);
+      if (await writeUtf8IfChanged(gradleFile, disabledUploads) && !changed.includes(appGradle)) changed.push(appGradle);
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     const current = await readUtf8(gradleFile);
-    const disabled = replaceRegexOnce(
-      current,
-      /^([ \t]*)alias\(libs\.plugins\.google\.services\)[ \t]*$/m,
-      "$1// CROSSGRAM: google-services disabled because the upstream config is private",
-      "CROSSGRAM: google-services disabled",
-      appGradle,
-      "disable the Google Services plugin when the private upstream config is unavailable",
-    );
-    if (await writeUtf8IfChanged(gradleFile, disabled) && !changed.includes(appGradle)) changed.push(appGradle);
+    let properties: string | undefined;
+    try {
+      properties = await readUtf8(path.join(root, "gradle.properties"));
+    } catch {
+      // Kotlin forks use literal application IDs.
+    }
+    const baseId = applicationIdFromGradle(current, properties, appGradle);
+    if (await writeUtf8IfChanged(
+      googleServicesFile,
+      placeholderGoogleServices(baseId, brand, googleServicesRelative),
+    )) changed.push(googleServicesRelative);
+    const disabledUploads = disablePrivateCrashlyticsUploads(current, appGradle);
+    if (await writeUtf8IfChanged(gradleFile, disabledUploads) && !changed.includes(appGradle)) changed.push(appGradle);
   }
 
   const manifestRelatives = ["TMessagesProj/src/main/AndroidManifest.xml"];

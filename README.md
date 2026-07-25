@@ -13,7 +13,7 @@ Crossgram 在 Telegram Android 及其第三方客户端源码上语义地注入�
 
 patch 保留每个上游原有的 API ID/hash 获取逻辑。Nagram、Nnngram 自带的 API 凭据切换功能也不会被覆盖。
 
-Nnngram 与 Nullgram 上游没有公开其私有 `google-services.json`；品牌步骤沿用它们 PR 构建的做法，语义地禁用 Google Services 插件，因此不伪造 Firebase 身份。Telegram/Nagram 发布了配置时，patch 会为新的 `.crossgram.<channel>` 包名添加匹配 client。Telegram API ID/hash 与 Firebase 配置是两套独立凭据。
+Nnngram 与 Nullgram 上游没有公开其私有 `google-services.json`；品牌步骤会生成明确标记的本地占位配置，并关闭私有 Crashlytics 上传，使 release 可以构建，但这些版本没有上游 Firebase 推送/崩溃上传能力。Telegram/Nagram 发布了配置时，patch 会为新的 `.crossgram.<channel>` 包名添加匹配 client。Telegram API ID/hash 与 Firebase 配置是两套独立凭据。
 
 ## 服务器配置
 

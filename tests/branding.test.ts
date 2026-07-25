@@ -53,15 +53,17 @@ describe("applyBrand", () => {
     expect(googleServices).not.toContain("crossgram.qq");
   });
 
-  it("disables Google Services when a fork does not publish its private config", async () => {
+  it("creates a local Firebase placeholder and disables private uploads when config is unpublished", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "crossgram-brand-private-firebase-"));
     const files: Record<string, string> = {
       "TMessagesProj/build.gradle.kts": [
         "plugins {",
         "    alias(libs.plugins.android.application)",
+        "    alias(libs.plugins.firebase.crashlytics)",
         "    alias(libs.plugins.google.services)",
         "}",
         'android { defaultConfig.applicationId = "xyz.nextalone.nnngram" }',
+        "the<CrashlyticsExtension>().nativeSymbolUploadEnabled = true",
         "",
       ].join("\n"),
       "TMessagesProj/src/main/AndroidManifest.xml": [
@@ -79,7 +81,13 @@ describe("applyBrand", () => {
 
     await applyBrand(root, getUpstream("nnngram"), getBrand("qq"));
     const gradle = await readFile(path.join(root, "TMessagesProj/build.gradle.kts"), "utf8");
-    expect(gradle).toContain("CROSSGRAM: google-services disabled");
-    expect(gradle).not.toMatch(/^\s*alias\(libs\.plugins\.google\.services\)/m);
+    const googleServices = await readFile(path.join(root, "TMessagesProj/google-services.json"), "utf8");
+    expect(gradle).toContain("CROSSGRAM: private Crashlytics uploads disabled");
+    expect(gradle).toContain("CROSSGRAM: private Crashlytics mapping upload disabled");
+    expect(gradle).toMatch(/^\s*alias\(libs\.plugins\.google\.services\)/m);
+    expect(googleServices).toContain('"package_name": "xyz.nextalone.nnngram.crossgram.qq"');
+    await applyBrand(root, getUpstream("nnngram"), getBrand("wechat"));
+    expect(await readFile(path.join(root, "TMessagesProj/google-services.json"), "utf8"))
+      .toContain('"package_name": "xyz.nextalone.nnngram.crossgram.wechat"');
   });
 });
