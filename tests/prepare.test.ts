@@ -47,12 +47,27 @@ describe("prepareBuild", () => {
   it("writes valid Kotlin DSL syntax for a single ABI", async () => {
     const relative = "TMessagesProj/build.gradle.kts";
     const root = await fixture(relative, "plugins { alias(libs.plugins.android.application) }\nandroid {}\n");
+    const cmake = path.join(root, "TMessagesProj/jni/CMakeLists.txt");
+    await mkdir(path.dirname(cmake), { recursive: true });
+    await writeFile(
+      cmake,
+      "add_library(rust STATIC IMPORTED)\nset_target_properties(rust PROPERTIES IMPORTED_LOCATION ${CMAKE_HOME_DIRECTORY}/integrity/${ANDROID_ABI}/librust.a.23)\n",
+      "utf8",
+    );
     await prepareBuild(root, getUpstream("nnngram"), "x86_64");
     const source = await readFile(path.join(root, relative), "utf8");
+    const cmakeSource = await readFile(cmake, "utf8");
 
     expect(source).toContain('abiFilters.addAll(setOf("x86_64"))');
     expect(source).toContain("productFlavors.configureEach");
     expect(source).toContain("isEnable = false");
+    expect(cmakeSource).toContain("if(EXISTS ${CROSSGRAM_RUST_ARCHIVE})");
+    expect(cmakeSource).toContain("crossgram_rust_log_fallback.cpp");
+    expect(await readFile(
+      path.join(root, "TMessagesProj/jni/integrity/crossgram_rust_log_fallback.cpp"),
+      "utf8",
+    )).toContain('extern "C" uint8_t loge');
+    expect(await prepareBuild(root, getUpstream("nnngram"), "x86_64")).toEqual([]);
   });
 
   it("makes Nagram native dependency scripts targetable and NDK-compatible on x86", async () => {
@@ -67,6 +82,14 @@ describe("prepareBuild", () => {
         "build arm64 arm",
         "",
       ].join("\n"),
+      "TMessagesProj/jni/patch_ffmpeg.sh": [
+        "#!/bin/bash",
+        ...["dv.h", "isom.h", "bytestream.h", "get_bits.h", "golomb.h"].flatMap((header) => [
+          `#cp ffmpeg/lib/${header} ffmpeg/build/x86/include/lib/${header}`,
+          `#cp ffmpeg/lib/${header} ffmpeg/build/x86_64/include/lib/${header}`,
+        ]),
+        "",
+      ].join("\n"),
     };
     for (const [nativeRelative, content] of Object.entries(nativeFiles)) {
       const file = path.join(root, nativeRelative);
@@ -79,6 +102,9 @@ describe("prepareBuild", () => {
     expect(libvpx).toContain("build ${CROSSGRAM_NATIVE_TARGETS:-arm64 arm}");
     expect(libvpx).toContain("CROSSGRAM NDK-compatible x86_64 flags");
     expect(libvpx).toContain("CROSSGRAM NDK-compatible x86 flags");
+    const headers = await readFile(path.join(root, "TMessagesProj/jni/patch_ffmpeg.sh"), "utf8");
+    expect(headers).not.toContain("#cp ffmpeg/");
+    expect(headers).toContain("CROSSGRAM x86 FFmpeg internal headers enabled");
     expect(await prepareBuild(root, getUpstream("nagram"), "x86_64")).toEqual([]);
   });
 });
