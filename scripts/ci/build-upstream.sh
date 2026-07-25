@@ -47,7 +47,6 @@ case "$CLIENT" in
   nullgram) NDK_VERSION=29.0.14206865 ;;
   *) echo "Unknown client: $CLIENT" >&2; exit 2 ;;
 esac
-(yes || true) | sdkmanager --install "ndk;$NDK_VERSION" "cmake;3.22.1"
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
 
 SIGNING_DIR="$SOURCE_ROOT/.crossgram-signing"

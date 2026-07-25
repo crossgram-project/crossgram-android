@@ -49,11 +49,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - uses: android-actions/setup-android@v3
+      - name: Install client NDK
+        run: |
+          case "${{ matrix.id }}" in
+            nagram|telegram) ndk_version=27.2.12479018 ;;
+            nnngram) ndk_version=28.2.13676358 ;;
+            nullgram) ndk_version=29.0.14206865 ;;
+          esac
+          (yes || true) | sdkmanager --install "ndk;$ndk_version" "cmake;3.22.1"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: ${{ matrix.id == 'telegram' && '11' || '17' }}
-      - uses: android-actions/setup-android@v3
       - name: Install native tools
         run: |
           sudo apt-get update
