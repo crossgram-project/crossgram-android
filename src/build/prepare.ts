@@ -107,6 +107,22 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     const updated = updateGradleOverride(source, abis, relative.endsWith(".kts"), includeSplits);
     if (await writeUtf8IfChanged(file, updated)) changed.push(relative);
   }
+  if (upstream.id === "telegram") {
+    const relative = "gradle/wrapper/gradle-wrapper.properties";
+    const file = path.join(root, relative);
+    const source = await readUtf8(file);
+    const target = "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-bin.zip";
+    let updated = source;
+    if (!source.includes(target)) {
+      const pattern = /^distributionUrl=.*gradle-[\d.]+-(?:all|bin)\.zip\s*$/gm;
+      const matches = [...source.matchAll(pattern)];
+      if (matches.length !== 1) {
+        throw new PatchError(relative, `expected one Gradle wrapper distribution, found ${matches.length}`);
+      }
+      updated = source.replace(new RegExp(pattern.source, "m"), target);
+    }
+    if (await writeUtf8IfChanged(file, updated)) changed.push(relative);
+  }
   if (upstream.id === "nagram") {
     for (const relative of [
       "TMessagesProj/jni/build_boringssl.sh",

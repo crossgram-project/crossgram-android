@@ -53,7 +53,8 @@ jobs:
       - name: Install client NDK
         run: |
           case "${{ matrix.id }}" in
-            nagram|telegram) ndk_version=27.2.12479018 ;;
+            nagram) ndk_version=27.2.12479018 ;;
+            telegram) ndk_version=21.4.7075529 ;;
             nnngram) ndk_version=28.2.13676358 ;;
             nullgram) ndk_version=29.0.14206865 ;;
           esac
@@ -61,7 +62,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: ${{ matrix.id == 'telegram' && '11' || '17' }}
+          java-version: 17
       - name: Install native tools
         run: |
           sudo apt-get update

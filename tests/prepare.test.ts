@@ -25,6 +25,12 @@ describe("prepareBuild", () => {
       "plugins { id 'com.android.application' }\nandroid {}\n",
       "utf8",
     );
+    await mkdir(path.join(root, "gradle/wrapper"), { recursive: true });
+    await writeFile(
+      path.join(root, "gradle/wrapper/gradle-wrapper.properties"),
+      "distributionUrl=https\\://services.gradle.org/distributions/gradle-7.0.2-all.zip\n",
+      "utf8",
+    );
     await prepareBuild(root, getUpstream("telegram"), "arm64");
     const changed = await prepareBuild(root, getUpstream("telegram"), "universal");
     const source = await readFile(path.join(root, relative), "utf8");
@@ -33,6 +39,8 @@ describe("prepareBuild", () => {
     expect(source).toContain("'x86', 'x86_64'");
     expect(source).toContain("productFlavors.configureEach");
     expect(source.match(/CROSSGRAM ABI OVERRIDE BEGIN/g)).toHaveLength(1);
+    expect(await readFile(path.join(root, "gradle/wrapper/gradle-wrapper.properties"), "utf8"))
+      .toContain("gradle-8.7-bin.zip");
     expect(await prepareBuild(root, getUpstream("telegram"), "universal")).toEqual([]);
   });
 

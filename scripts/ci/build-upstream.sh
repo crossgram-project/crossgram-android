@@ -42,7 +42,8 @@ done
 export CROSSGRAM_NATIVE_TARGETS="${NATIVE_TARGETS[*]}"
 
 case "$CLIENT" in
-  nagram|telegram) NDK_VERSION=27.2.12479018 ;;
+  nagram) NDK_VERSION=27.2.12479018 ;;
+  telegram) NDK_VERSION=21.4.7075529 ;;
   nnngram) NDK_VERSION=28.2.13676358 ;;
   nullgram) NDK_VERSION=29.0.14206865 ;;
   *) echo "Unknown client: $CLIENT" >&2; exit 2 ;;
