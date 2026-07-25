@@ -7,6 +7,16 @@ on:
         description: Publish successful APKs to GitHub Releases
         type: boolean
         default: true
+      client:
+        description: Limit a manual debug run to one upstream
+        type: choice
+        default: all
+        options:
+          - all
+          - nagram
+          - telegram
+          - nnngram
+          - nullgram
   schedule:
     - cron: "17 3 * * *"
 
@@ -32,6 +42,7 @@ jobs:
       - id: matrix
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CROSSGRAM_CLIENT: ${{ inputs.client || 'all' }}
         run: yarn discover --github-output "$GITHUB_OUTPUT"
 
   build:

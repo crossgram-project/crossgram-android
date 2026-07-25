@@ -54,7 +54,14 @@ export async function discoverUpstreams(): Promise<DiscoveredUpstream[]> {
 }
 
 export async function emitGithubMatrices(outputFile?: string): Promise<object> {
-  const clients = await discoverUpstreams();
+  const discovered = await discoverUpstreams();
+  const requested = process.env.CROSSGRAM_CLIENT ?? "all";
+  const clients = requested === "all"
+    ? discovered
+    : discovered.filter((client) => client.id === requested);
+  if (clients.length === 0) {
+    throw new Error(`Unknown CROSSGRAM_CLIENT: ${requested}`);
+  }
   const variants = ["armAll", "arm64", "x86_64", "universal"] as const;
   const build = {
     include: clients.flatMap((client) => variants.map((variant) => ({ ...client, variant }))),

@@ -84,6 +84,8 @@ yarn check
 
 `.github/workflows/release.yml` 每天查询四个上游的 latest release；没有 release 时回退到最新 tag，再回退到默认分支。四个客户端 × 四个架构形成 16 个相互隔离的并行 job，`fail-fast` 关闭，单个上游或 ABI 失败不会阻断其他构建和发布。每个成功 job 顺序生成五个品牌 APK、SHA-256 校验文件，并汇总到该上游独立的 GitHub Release。
 
+手动运行 workflow 时可将 `client` 选为单个上游以快速调试；定时任务和默认 `all` 仍生成完整 16-job 矩阵。
+
 release 签名使用以下 Actions Secrets：
 
 - `CROSSGRAM_KEYSTORE_BASE64`
