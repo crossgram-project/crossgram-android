@@ -74,12 +74,13 @@ export async function emitGithubMatrices(outputFile?: string): Promise<object> {
       variantsForClient(client.id).map((variant) => ({ ...client, variant })),
     ),
   };
-  const publish = {
-    include: clients.map((client) => ({ ...client })),
-  };
-  const result = { clients, build, publish };
+  const result = { clients, build };
   if (outputFile) {
-    await appendFile(outputFile, `build=${JSON.stringify(build)}\npublish=${JSON.stringify(publish)}\n`, "utf8");
+    await appendFile(
+      outputFile,
+      `clients=${JSON.stringify(clients)}\nbuild=${JSON.stringify(build)}\n`,
+      "utf8",
+    );
   }
   return result;
 }

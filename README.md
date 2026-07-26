@@ -1,5 +1,7 @@
 # Crossgram Android patcher
 
+[![一键构建并发布](https://img.shields.io/badge/GitHub_Actions-一键构建并发布-2088FF?logo=githubactions&logoColor=white)](https://github.com/crossgram-project/crossgram-android/actions/workflows/release.yml)
+
 Crossgram 在 Telegram Android 及其第三方客户端源码上语义地注入服务器切换能力，并通过 GitHub Actions 自动构建多个品牌和 ABI 版本。patcher 使用 TypeScript、Node.js 24 与 Yarn 4；大段 Java/C++/资源代码保存在 `features/server-switch/files`，不依赖 `git apply`。
 
 ## 已支持的上游
@@ -82,9 +84,9 @@ yarn check
 
 ## 自动发布
 
-`.github/workflows/release.yml` 每天查询四个上游的 latest release；没有 release 时回退到最新 tag，再回退到默认分支。Telegram/Nagram 各构建四个 variant，Nnngram/Nullgram 各构建两个 ARM variant，共形成 12 个相互隔离的并行 job。`fail-fast` 关闭，单个上游或 ABI 失败不会阻断其他构建和发布。每个成功 job 顺序生成五个品牌 APK、SHA-256 校验文件，并汇总到该上游独立的 GitHub Release。
+`.github/workflows/release.yml` 每天查询四个上游的 latest release；没有 release 时回退到最新 tag，再回退到默认分支。Telegram/Nagram 各构建四个 variant，Nnngram/Nullgram 各构建两个 ARM variant，共形成 12 个相互隔离的并行 job。`fail-fast` 关闭，单个上游或 ABI 失败不会阻断其他构建和发布。每个成功 job 顺序生成五个品牌 APK 和独立的 SHA-256 校验文件，最终汇总到同一条 Crossgram Android Release。
 
-手动运行 workflow 时可将 `client` 选为单个上游以快速调试；定时任务和默认 `all` 生成完整 12-job 矩阵。
+点击页面顶部的“一键构建并发布”按钮后，在 Actions 页面点击 `Run workflow`，保持默认的 `publish=true`、`client=all` 即会构建完整 12-job 矩阵并创建一条统一 Release。也可选择单个客户端进行调试；单客户端发布同样只创建一条 Release。
 
 Nnngram 与 Nullgram 的仓库只提交了 ARM 原生依赖，因此发布矩阵仅构建
 `arm64` 和 `armAll`；Telegram 与 Nagram 仍构建全部四种 variant。

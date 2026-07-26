@@ -9,7 +9,7 @@ describe("build scripts", () => {
     const source = await readFile(ciScript, "utf8");
 
     expect(source).toContain('cd "$OUTPUT_ROOT"');
-    expect(source).toContain("sha256sum ./*.apk > SHA256SUMS.txt");
+    expect(source).toContain('sha256sum ./*.apk > "SHA256SUMS-${CLIENT}-${VARIANT}.txt"');
     expect(source).not.toContain('sha256sum "$OUTPUT_ROOT"/*.apk');
   });
 });

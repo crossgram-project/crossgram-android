@@ -112,5 +112,5 @@ done
 
 (
   cd "$OUTPUT_ROOT"
-  sha256sum ./*.apk > SHA256SUMS.txt
+  sha256sum ./*.apk > "SHA256SUMS-${CLIENT}-${VARIANT}.txt"
 )
