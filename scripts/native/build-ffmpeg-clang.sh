@@ -106,7 +106,6 @@ function build_one {
   --enable-bsf=vp9_raw_reorder \
 	--enable-runtime-cpudetect \
 	--enable-pthreads \
-	--enable-avresample \
 	--enable-swscale \
 	--enable-protocol=file \
 	--enable-decoder=h264 \

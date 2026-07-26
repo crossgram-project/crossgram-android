@@ -79,7 +79,9 @@ if [[ "$CLIENT" == "nnngram" || "$CLIENT" == "nullgram" ]]; then
       git init "$FFMPEG_SOURCE_ROOT"
       git -C "$FFMPEG_SOURCE_ROOT" remote add origin https://github.com/FFmpeg/FFmpeg.git
     fi
-    git -C "$FFMPEG_SOURCE_ROOT" fetch --depth=1 origin c3ad886251fdba1eaf9e461a6dd013df19ba54a8
+    # Their generated headers report n7.1.1-1; use the public n7.1.1 commit so
+    # the static archives expose the same channel-layout and side-data APIs.
+    git -C "$FFMPEG_SOURCE_ROOT" fetch --depth=1 origin db69d06eeeab4f46da15030a80d539efb4503ca8
     git -C "$FFMPEG_SOURCE_ROOT" checkout --detach --force FETCH_HEAD
     git -C "$FFMPEG_SOURCE_ROOT" clean -fdx
 
