@@ -70,6 +70,30 @@ describe("prepareBuild", () => {
     expect(await prepareBuild(root, getUpstream("nnngram"), "x86_64")).toEqual([]);
   });
 
+  it("removes Nullgram's upstream-only certificate gate", async () => {
+    const relative = "TMessagesProj/build.gradle.kts";
+    const root = await fixture(relative, "plugins { alias(libs.plugins.android.application) }\nandroid {}\n");
+    const cmake = path.join(root, "TMessagesProj/jni/CMakeLists.txt");
+    await mkdir(path.dirname(cmake), { recursive: true });
+    await writeFile(
+      cmake,
+      "add_library(rust STATIC IMPORTED)\nset_target_properties(rust PROPERTIES IMPORTED_LOCATION ${CMAKE_HOME_DIRECTORY}/integrity/${ANDROID_ABI}/librust.a.22)\n",
+      "utf8",
+    );
+    const jni = path.join(root, "TMessagesProj/jni/jni.c");
+    await writeFile(
+      jni,
+      "jint JNI_OnLoad(JavaVM *vm, void *reserved) {\n    if (!checkSignature(verify_signature(vm))) {\n        return JNI_ERR;\n    }\n    return JNI_VERSION_1_6;\n}\n",
+      "utf8",
+    );
+
+    await prepareBuild(root, getUpstream("nullgram"), "x86_64");
+    const source = await readFile(jni, "utf8");
+    expect(source).toContain("accept the Crossgram release certificate");
+    expect(source).not.toContain("verify_signature(vm)");
+    expect(await prepareBuild(root, getUpstream("nullgram"), "x86_64")).toEqual([]);
+  });
+
   it("makes Nagram native dependency scripts targetable and NDK-compatible on x86", async () => {
     const relative = "TMessagesProj/build.gradle";
     const root = await fixture(relative, "plugins { id 'com.android.application' }\nandroid {}\n");

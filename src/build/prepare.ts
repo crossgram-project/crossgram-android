@@ -155,6 +155,23 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     if (await writeUtf8IfChanged(path.join(root, fallbackRelative), rustLogFallback)) {
       changed.push(fallbackRelative);
     }
+
+    if (upstream.id === "nullgram") {
+      const jniRelative = "TMessagesProj/jni/jni.c";
+      const jniFile = path.join(root, jniRelative);
+      const jniSource = await readUtf8(jniFile);
+      const marker = "/* CROSSGRAM: accept the Crossgram release certificate. */";
+      let jniUpdated = jniSource;
+      if (!jniUpdated.includes(marker)) {
+        const check = /[ \t]*if \(!checkSignature\(verify_signature\(vm\)\)\) \{\r?\n[ \t]*return JNI_ERR;\r?\n[ \t]*\}/;
+        const matches = [...jniUpdated.matchAll(new RegExp(check.source, "g"))];
+        if (matches.length !== 1) {
+          throw new PatchError(jniRelative, `expected one upstream signature gate, found ${matches.length}`);
+        }
+        jniUpdated = jniUpdated.replace(check, `\n    ${marker}`);
+      }
+      if (await writeUtf8IfChanged(jniFile, jniUpdated)) changed.push(jniRelative);
+    }
   }
   if (upstream.id === "nagram") {
     for (const relative of [

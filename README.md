@@ -89,7 +89,8 @@ yarn check
 Nnngram 与 Nullgram 的仓库只提交了 ARM 版 FFmpeg/libvpx 和私有 Rust
 预编译库。`x86_64` 与 `universal` job 会用对应客户端的 NDK 编译同版本
 FFmpeg 7.1.1/libvpx，并在私有 Rust 库缺失的 ABI 上使用等价的 Android
-日志后备实现。
+日志后备实现。Nullgram 原生层只接受上游 GitHub/Play 证书，构建准备阶段会
+移除这段与 Crossgram release 证书不兼容的门禁。
 
 release 签名使用以下 Actions Secrets：
 
