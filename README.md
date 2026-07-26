@@ -82,15 +82,13 @@ yarn check
 
 ## 自动发布
 
-`.github/workflows/release.yml` 每天查询四个上游的 latest release；没有 release 时回退到最新 tag，再回退到默认分支。四个客户端 × 四个架构形成 16 个相互隔离的并行 job，`fail-fast` 关闭，单个上游或 ABI 失败不会阻断其他构建和发布。每个成功 job 顺序生成五个品牌 APK、SHA-256 校验文件，并汇总到该上游独立的 GitHub Release。
+`.github/workflows/release.yml` 每天查询四个上游的 latest release；没有 release 时回退到最新 tag，再回退到默认分支。Telegram/Nagram 各构建四个 variant，Nnngram/Nullgram 各构建两个 ARM variant，共形成 12 个相互隔离的并行 job。`fail-fast` 关闭，单个上游或 ABI 失败不会阻断其他构建和发布。每个成功 job 顺序生成五个品牌 APK、SHA-256 校验文件，并汇总到该上游独立的 GitHub Release。
 
-手动运行 workflow 时可将 `client` 选为单个上游以快速调试；定时任务和默认 `all` 仍生成完整 16-job 矩阵。
+手动运行 workflow 时可将 `client` 选为单个上游以快速调试；定时任务和默认 `all` 生成完整 12-job 矩阵。
 
-Nnngram 与 Nullgram 的仓库只提交了 ARM 版 FFmpeg/libvpx 和私有 Rust
-预编译库。`x86_64` 与 `universal` job 会用对应客户端的 NDK 编译同版本
-FFmpeg 7.1.1/libvpx，并在私有 Rust 库缺失的 ABI 上使用等价的 Android
-日志后备实现。FFmpeg 构建使用 FFmpeg 7 的 `hevc` 组件名，并为 x86_64
-保留其 codelet 所需的 x86asm 实现。Nullgram 原生层只接受上游 GitHub/Play 证书，构建准备阶段会
+Nnngram 与 Nullgram 的仓库只提交了 ARM 原生依赖，因此发布矩阵仅构建
+`arm64` 和 `armAll`；Telegram 与 Nagram 仍构建全部四种 variant。
+Nullgram 原生层只接受上游 GitHub/Play 证书，构建准备阶段会
 移除这段与 Crossgram release 证书不兼容的门禁。
 
 release 签名使用以下 Actions Secrets：

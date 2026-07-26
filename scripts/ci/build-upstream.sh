@@ -50,62 +50,6 @@ case "$CLIENT" in
 esac
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
 
-# Nnngram and Nullgram publish FFmpeg/libvpx archives for ARM only. Build the
-# missing x86 archives from the exact FFmpeg/libvpx revisions used by these
-# clients before Gradle configures their native target.
-if [[ "$CLIENT" == "nnngram" || "$CLIENT" == "nullgram" ]]; then
-  X86_NATIVE_TARGETS=()
-  X86_ABIS=()
-  for target in "${NATIVE_TARGETS[@]}"; do
-    case "$target" in
-      x86) X86_NATIVE_TARGETS+=(x86); X86_ABIS+=(x86) ;;
-      x86_64) X86_NATIVE_TARGETS+=(x86_64); X86_ABIS+=(x86_64) ;;
-    esac
-  done
-
-  if (( ${#X86_NATIVE_TARGETS[@]} > 0 )); then
-    JNI_ROOT="$SOURCE_ROOT/TMessagesProj/jni"
-    LIBVPX_ROOT="$JNI_ROOT/libvpx"
-    FFMPEG_SOURCE_ROOT="$JNI_ROOT/ffmpeg-source"
-    if [[ ! -d "$LIBVPX_ROOT/.git" ]]; then
-      git init "$LIBVPX_ROOT"
-      git -C "$LIBVPX_ROOT" remote add origin https://github.com/webmproject/libvpx.git
-    fi
-    git -C "$LIBVPX_ROOT" fetch --depth=1 origin f51417671e062b9551d71c6d00635eb47f8c0254
-    git -C "$LIBVPX_ROOT" checkout --detach --force FETCH_HEAD
-    git -C "$LIBVPX_ROOT" clean -fdx
-
-    if [[ ! -d "$FFMPEG_SOURCE_ROOT/.git" ]]; then
-      git init "$FFMPEG_SOURCE_ROOT"
-      git -C "$FFMPEG_SOURCE_ROOT" remote add origin https://github.com/FFmpeg/FFmpeg.git
-    fi
-    # Their generated headers report n7.1.1-1; use the public n7.1.1 commit so
-    # the static archives expose the same channel-layout and side-data APIs.
-    git -C "$FFMPEG_SOURCE_ROOT" fetch --depth=1 origin db69d06eeeab4f46da15030a80d539efb4503ca8
-    git -C "$FFMPEG_SOURCE_ROOT" checkout --detach --force FETCH_HEAD
-    git -C "$FFMPEG_SOURCE_ROOT" clean -fdx
-
-    mkdir -p "$JNI_ROOT/patches"
-    install -m 644 "$PATCHER_ROOT/scripts/native/libvpx-x86-fix.patch" \
-      "$JNI_ROOT/patches/libvpx_x86_fix.patch"
-    cd "$JNI_ROOT"
-    NDK="$ANDROID_NDK_HOME" bash "$PATCHER_ROOT/scripts/native/build-libvpx-clang.sh" \
-      "${X86_NATIVE_TARGETS[@]}"
-    NDK="$ANDROID_NDK_HOME" CROSSGRAM_FFMPEG_SOURCE=ffmpeg-source \
-      bash "$PATCHER_ROOT/scripts/native/build-ffmpeg-clang.sh" "${X86_NATIVE_TARGETS[@]}"
-
-    for abi in "${X86_ABIS[@]}"; do
-      install -d "$JNI_ROOT/ffmpeg/$abi"
-      for library in libavcodec.a libavformat.a libavutil.a libswresample.a libswscale.a; do
-        install -m 644 "$JNI_ROOT/ffmpeg-source/build/$abi/lib/$library" \
-          "$JNI_ROOT/ffmpeg/$abi/$library"
-      done
-      install -m 644 "$JNI_ROOT/libvpx/build/$abi/lib/libvpx.a" \
-        "$JNI_ROOT/ffmpeg/$abi/libvpx.a"
-    done
-  fi
-fi
-
 SIGNING_DIR="$SOURCE_ROOT/.crossgram-signing"
 mkdir -p "$SIGNING_DIR"
 KEYSTORE="$SIGNING_DIR/release.keystore"

@@ -33,6 +33,13 @@ export interface DiscoveredUpstream {
   gradleTask: string;
 }
 
+const allVariants = ["armAll", "arm64", "x86_64", "universal"] as const;
+const armVariants = ["armAll", "arm64"] as const;
+
+export function variantsForClient(id: string): readonly (typeof allVariants)[number][] {
+  return id === "nnngram" || id === "nullgram" ? armVariants : allVariants;
+}
+
 export async function discoverUpstreams(): Promise<DiscoveredUpstream[]> {
   return Promise.all(upstreams.map(async (upstream) => {
     const release = await github<GithubRelease>(`/repos/${upstream.repository}/releases/latest`);
@@ -62,9 +69,10 @@ export async function emitGithubMatrices(outputFile?: string): Promise<object> {
   if (clients.length === 0) {
     throw new Error(`Unknown CROSSGRAM_CLIENT: ${requested}`);
   }
-  const variants = ["armAll", "arm64", "x86_64", "universal"] as const;
   const build = {
-    include: clients.flatMap((client) => variants.map((variant) => ({ ...client, variant }))),
+    include: clients.flatMap((client) =>
+      variantsForClient(client.id).map((variant) => ({ ...client, variant })),
+    ),
   };
   const publish = {
     include: clients.map((client) => ({ ...client })),
