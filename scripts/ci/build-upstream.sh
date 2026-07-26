@@ -166,4 +166,7 @@ for brand in qq wechat wecom dingtalk discord; do
   fi
 done
 
-sha256sum "$OUTPUT_ROOT"/*.apk > "$OUTPUT_ROOT/SHA256SUMS.txt"
+(
+  cd "$OUTPUT_ROOT"
+  sha256sum ./*.apk > SHA256SUMS.txt
+)
