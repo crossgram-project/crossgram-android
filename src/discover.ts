@@ -33,8 +33,8 @@ export interface DiscoveredUpstream {
   gradleTask: string;
 }
 
-const allVariants = ["armAll", "arm64", "x86_64", "universal"] as const;
-const armVariants = ["armAll", "arm64"] as const;
+const allVariants = ["arm64", "x86_64"] as const;
+const armVariants = ["arm64"] as const;
 
 export function variantsForClient(id: string): readonly (typeof allVariants)[number][] {
   return id === "nnngram" || id === "nullgram" ? armVariants : allVariants;

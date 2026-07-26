@@ -135,7 +135,7 @@ jobs:
             echo "Included upstream revisions:"
             printf '%s' "$CLIENTS_JSON" | jq -r '.[] | "- \(.id): `\(.ref)` from \(.repository)"'
             echo
-            echo "Only clients and architectures that built successfully are attached. Each architecture includes QQ · Cross, 微信 · Cross, 企业微信 · Cross, 钉钉 · Cross and Discord · Cross."
+            echo "Only successful 64-bit client builds are attached. Each architecture includes QQ · Cross, 微信 · Cross, 企业微信 · Cross, 钉钉 · Cross and Discord · Cross."
           } > release-notes.md
 
           if ! gh release view "$tag" >/dev/null 2>&1; then
