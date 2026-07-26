@@ -196,7 +196,7 @@ public final class ServerSwitchConfig {
             Store store = getStore();
             store.accountSelections.remove(Integer.toString(account));
             save(store);
-            applyLocked(store, account);
+            applyLocked(store, account, true);
         }
     }
 
@@ -208,7 +208,7 @@ public final class ServerSwitchConfig {
             }
             store.accountSelections.put(Integer.toString(account), serverId);
             save(store);
-            applyLocked(store, account);
+            applyLocked(store, account, true);
         }
     }
 
@@ -219,25 +219,25 @@ public final class ServerSwitchConfig {
             store.servers.add(server);
             store.accountSelections.put(Integer.toString(account), server.id);
             save(store);
-            applyLocked(store, account);
+            applyLocked(store, account, true);
         }
         return server;
     }
 
-    public static void apply(int account) {
+    public static void applyForInitialization(int account) {
         synchronized (LOCK) {
-            applyLocked(getStore(), account);
+            applyLocked(getStore(), account, false);
         }
     }
 
-    private static void applyLocked(Store store, int account) {
+    private static void applyLocked(Store store, int account, boolean resetDatacenters) {
         Server server = findSelectedServer(store, account);
         if (server == null) {
-            ConnectionsManager.native_setServerConfig(account, "", "", true);
+            ConnectionsManager.native_setServerConfig(account, "", "", true, resetDatacenters);
             return;
         }
         ConnectionsManager.native_setServerConfig(account, server.id, server.rsaKey,
-                server.enableSpecialConfig);
+                server.enableSpecialConfig, resetDatacenters);
         for (Dc dc : server.dcs) {
             ConnectionsManager.native_applyDatacenterAddress(account, dc.id, dc.ip, dc.port);
         }

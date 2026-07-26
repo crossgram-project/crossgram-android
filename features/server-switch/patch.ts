@@ -45,6 +45,10 @@ async function patchConnectionsJava(root: string, changed: string[]): Promise<vo
   const file = "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java";
   await editFile(root, file, changed, (initial) => {
     let source = addJavaImport(initial, "org.telegram.messenger.server_switch.ServerSwitchConfig", file);
+    source = source.replace(
+      "ServerSwitchConfig.apply(currentAccount);",
+      "ServerSwitchConfig.applyForInitialization(currentAccount);",
+    );
     source = editDeclarationBody(
       source,
       /(?:public|private|protected)\s+ConnectionsManager\s*\(/,
@@ -53,8 +57,8 @@ async function patchConnectionsJava(root: string, changed: string[]): Promise<vo
       (body) => replaceRegexOnce(
         body,
         /^(\s*)init\(/m,
-        "$1ServerSwitchConfig.apply(currentAccount);\n$1init(",
-        "ServerSwitchConfig.apply(currentAccount);",
+        "$1ServerSwitchConfig.applyForInitialization(currentAccount);\n$1init(",
+        "ServerSwitchConfig.applyForInitialization(currentAccount);",
         file,
         "initialize the account's selected server before tgnet starts",
       ),
@@ -69,14 +73,22 @@ async function patchConnectionsJava(root: string, changed: string[]): Promise<vo
         return `\n        if (!ServerSwitchConfig.isSpecialConfigEnabled(currentAccount)) {\n            return;\n        }${body}`;
       },
     );
-    source = replaceRegexOnce(
-      source,
-      /(^[ \t]*public\s+static\s+native\s+void\s+native_applyDatacenterAddress\s*\([^;]+;[ \t]*$)/m,
-      "$1\n\n    public static native void native_setServerConfig(int currentAccount, String configId, String rsaKey, boolean enableSpecialConfig);",
-      "native_setServerConfig(int currentAccount",
-      file,
-      "declare the server configuration JNI method",
-    );
+    const nativeDeclaration = "    public static native void native_setServerConfig(int currentAccount, String configId, String rsaKey, boolean enableSpecialConfig, boolean resetDatacenters);";
+    if (/public\s+static\s+native\s+void\s+native_setServerConfig\s*\(/.test(source)) {
+      source = source.replace(
+        /^[ \t]*public\s+static\s+native\s+void\s+native_setServerConfig\s*\([^;]+;[ \t]*$/m,
+        nativeDeclaration,
+      );
+    } else {
+      source = replaceRegexOnce(
+        source,
+        /(^[ \t]*public\s+static\s+native\s+void\s+native_applyDatacenterAddress\s*\([^;]+;[ \t]*$)/m,
+        `$1\n\n${nativeDeclaration}`,
+        "native_setServerConfig(int currentAccount",
+        file,
+        "declare the server configuration JNI method",
+      );
+    }
     return source;
   });
 }
@@ -85,8 +97,18 @@ async function patchWrapper(root: string, changed: string[]): Promise<void> {
   const file = "TMessagesProj/jni/TgNetWrapper.cpp";
   const wrapper = await template("native/wrapper-method.cpp");
   await editFile(root, file, changed, (initial) => {
-    let source = replaceRegexOnce(
-      initial,
+    let source = initial.replace(
+      /jboolean enableSpecialConfig\)\s*\{(?=[\s\S]*?ConnectionsManager::getInstance\(instanceNum\)\.setServerConfig)/,
+      "jboolean enableSpecialConfig, jboolean resetDatacenters) {",
+    ).replace(
+      /std::string\(configIdStr\),\s*std::string\(rsaKeyStr\),\s*enableSpecialConfig\);/,
+      "std::string(configIdStr), std::string(rsaKeyStr), enableSpecialConfig,\n            resetDatacenters);",
+    ).replace(
+      /\{"native_setServerConfig",\s*"\(ILjava\/lang\/String;Ljava\/lang\/String;Z\)V"/,
+      '{"native_setServerConfig", "(ILjava/lang/String;Ljava/lang/String;ZZ)V"',
+    );
+    source = replaceRegexOnce(
+      source,
       /(?=void\s+setProxySettings\s*\()/,
       `${wrapper}\n`,
       "void setServerConfig(JNIEnv",
@@ -96,7 +118,7 @@ async function patchWrapper(root: string, changed: string[]): Promise<void> {
     source = replaceRegexOnce(
       source,
       /(^[ \t]*\{"native_applyDatacenterAddress"[\s\S]*?\(void\s*\*\)\s*applyDatacenterAddress\},[ \t]*$)/m,
-      '$1\n        {"native_setServerConfig", "(ILjava/lang/String;Ljava/lang/String;Z)V", (void *) setServerConfig},',
+      '$1\n        {"native_setServerConfig", "(ILjava/lang/String;Ljava/lang/String;ZZ)V", (void *) setServerConfig},',
       '{"native_setServerConfig"',
       file,
       "register the JNI server configuration bridge",
@@ -108,14 +130,23 @@ async function patchWrapper(root: string, changed: string[]): Promise<void> {
 async function patchManagerHeader(root: string, changed: string[]): Promise<void> {
   const file = "TMessagesProj/jni/tgnet/ConnectionsManager.h";
   await editFile(root, file, changed, (initial) => {
-    let source = replaceRegexOnce(
-      initial,
-      /(^[ \t]*void\s+applyDatacenterAddress\s*\([^;]+;[ \t]*$)/m,
-      "$1\n    void setServerConfig(std::string configId, std::string rsaKey, bool enableSpecialConfig);\n    const std::string &getCustomServerRsaKey() const;",
-      "void setServerConfig(std::string configId",
-      file,
-      "declare ConnectionsManager server configuration methods",
-    );
+    let source = initial;
+    const managerDeclaration = "    void setServerConfig(std::string configId, std::string rsaKey, bool enableSpecialConfig,\n                         bool resetDatacenters);";
+    if (/void\s+setServerConfig\s*\(/.test(source)) {
+      source = source.replace(
+        /^[ \t]*void\s+setServerConfig\s*\([^;]+;[ \t]*$/m,
+        managerDeclaration,
+      );
+    } else {
+      source = replaceRegexOnce(
+        source,
+        /(^[ \t]*void\s+applyDatacenterAddress\s*\([^;]+;[ \t]*$)/m,
+        `$1\n${managerDeclaration}\n    const std::string &getCustomServerRsaKey() const;`,
+        "void setServerConfig(std::string configId",
+        file,
+        "declare ConnectionsManager server configuration methods",
+      );
+    }
     source = replaceRegexOnce(
       source,
       /(^[ \t]*bool\s+testBackend\s*=\s*false;[ \t]*$)/m,
@@ -159,8 +190,21 @@ async function patchManagerCpp(root: string, changed: string[]): Promise<void> {
   const file = "TMessagesProj/jni/tgnet/ConnectionsManager.cpp";
   const methods = await template("native/manager-methods.cpp");
   await editFile(root, file, changed, (initial) => {
-    let source = editDeclarationBody(
-      initial,
+    let source = initial.replace(
+      /bool specialConfigEnabled\)\s*\{(?=[\s\S]*?scheduleTask\(\[this, configId)/,
+      "bool specialConfigEnabled, bool resetDatacenters) {",
+    );
+    if (source.includes("ConnectionsManager::setServerConfig") && !source.includes("if (!resetDatacenters)")) {
+      source = editDeclarationBody(
+        source,
+        /void\s+ConnectionsManager::setServerConfig\s*\(/,
+        file,
+        "ConnectionsManager::setServerConfig",
+        (body) => `\n    if (!resetDatacenters) {\n        customServerId = std::move(configId);\n        customServerRsaKey = std::move(rsaKey);\n        enableSpecialConfig = specialConfigEnabled;\n        return;\n    }${body}`,
+      );
+    }
+    source = editDeclarationBody(
+      source,
       /void\s+ConnectionsManager::onConnectionClosed\s*\(/,
       file,
       "ConnectionsManager::onConnectionClosed",
@@ -228,96 +272,106 @@ async function patchHandshake(root: string, changed: string[]): Promise<void> {
   });
 }
 
-async function patchNagramMenu(root: string, changed: string[]): Promise<void> {
-  const file = "TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java";
-  await editFile(root, file, changed, (initial) => {
-    let source = addJavaImport(initial, "org.telegram.messenger.server_switch.ServerSwitchDialogs", file);
-    source = replaceRegexOnce(
-      source,
-      /menu\.addSubItem\(menu_custom_dc,\s*R\.drawable\.msg_retry,\s*LocaleController\.getString\(R\.string\.CustomBackend\)\)\s*\n\s*\.setContentDescription\(LocaleController\.getString\(R\.string\.CustomBackend\)\);/,
-      "menu.addSubItem(menu_custom_dc, R.drawable.msg_retry, LocaleController.getString(R.string.ServerSwitchTitle))\n                .setContentDescription(LocaleController.getString(R.string.ServerSwitchTitle));",
-      "menu_custom_dc, R.drawable.msg_retry, LocaleController.getString(R.string.ServerSwitchTitle)",
-      file,
-      "rename Nagram's custom backend menu",
+function removeLegacyLoginEntries(source: string, file: string, legacyButton: string): string {
+  let updated = source.replace(legacyButton.trimEnd(), "");
+  updated = updated
+    .replace(/^\s*private static final int SERVER_SWITCH_MENU_ID = 0x5357;\r?\n/m, "")
+    .replace(/^\s*moreButtonView\.addSubItem\(SERVER_SWITCH_MENU_ID, LocaleController\.getString\(R\.string\.ServerSwitchTitle\)\);\r?\n/m, "")
+    .replace(
+      /if\s*\(id\s*==\s*SERVER_SWITCH_MENU_ID\)\s*\{\s*ServerSwitchDialogs\.showSelector\(this, currentAccount, null\);\s*\}\s*else\s+if\s*\(id\s*==\s*0\)\s*\{/,
+      "if (id == 0) {",
+    )
+    .replace(
+      /menu\.addSubItem\(menu_custom_dc,\s*R\.drawable\.msg_retry,\s*LocaleController\.getString\(R\.string\.ServerSwitchTitle\)\)\s*\r?\n\s*\.setContentDescription\(LocaleController\.getString\(R\.string\.ServerSwitchTitle\)\);/,
+      "menu.addSubItem(menu_custom_dc, R.drawable.msg_retry, LocaleController.getString(R.string.CustomBackend))\n                .setContentDescription(LocaleController.getString(R.string.CustomBackend));",
     );
-    source = editDeclarationBody(
-      source,
+  if (updated.includes("menu_custom_dc")) {
+    updated = editDeclarationBody(
+      updated,
       /else\s+if\s*\(id\s*==\s*menu_custom_dc\)\s*\{/,
       file,
-      "Nagram custom backend branch",
-      (body) => body.includes("ServerSwitchDialogs.showSelector")
-        ? body
-        : "\n                ServerSwitchDialogs.showSelector(this, currentAccount, null);\n            ",
+      "restore Nagram custom backend branch",
+      (body) => body.includes("ServerSwitchDialogs.showSelector(this, currentAccount, null);")
+        ? "\n                PhoneView phoneView = (PhoneView)views[VIEW_PHONE_INPUT];\n                if (phoneView.testBackendCheckBox != null) {\n                    if (phoneView.testBackendCheckBox.getVisibility() == View.GONE)\n                        phoneView.testBackendCheckBox.setVisibility(View.VISIBLE);\n                    else\n                        phoneView.testBackendCheckBox.setVisibility(View.GONE);\n                }\n            "
+        : body,
     );
-    return source;
-  });
+  }
+  return updated;
 }
 
-async function patchMoreMenu(root: string, changed: string[]): Promise<void> {
+export function patchLoginIconSource(
+  initial: string,
+  file: string,
+  icon: string,
+  legacyButton: string,
+): string {
+  let source = removeLegacyLoginEntries(initial, file, legacyButton);
+  source = addJavaImport(source, "org.telegram.messenger.server_switch.ServerSwitchDialogs", file);
+  source = replaceRegexOnce(
+    source,
+    /(^[ \t]*private\s+ImageView\s+backButtonView;[ \t]*$)/m,
+    "$1\n    private ImageView serverSwitchButton;",
+    "private ImageView serverSwitchButton;",
+    file,
+    "declare the server switch icon",
+  );
+  source = editDeclarationBody(
+    source,
+    /public\s+View\s+createView\s*\(\s*Context\s+context\s*\)/,
+    file,
+    "LoginActivity.createView",
+    (body) => {
+      const markerStart = "        // CROSSGRAM SERVER SWITCH ICON BEGIN";
+      const markerEnd = "        // CROSSGRAM SERVER SWITCH ICON END";
+      const markedStart = body.indexOf(markerStart);
+      if (markedStart >= 0) {
+        const markedEnd = body.indexOf(markerEnd, markedStart);
+        if (markedEnd < 0) throw new PatchError(file, "LoginActivity.createView: unterminated server icon block");
+        return `${body.slice(0, markedStart)}${icon.trimEnd()}${body.slice(markedEnd + markerEnd.length)}`;
+      }
+      const existingAssignment = body.indexOf("serverSwitchButton = new ImageView(context);");
+      if (existingAssignment >= 0) {
+        const existingStart = body.lastIndexOf("        if (activityMode == MODE_LOGIN) {", existingAssignment);
+        const existingEnd = body.indexOf("\n        }", existingAssignment);
+        if (existingStart < 0 || existingEnd < 0) {
+          throw new PatchError(file, "LoginActivity.createView: could not replace the existing server icon");
+        }
+        return `${body.slice(0, existingStart)}${icon.trimEnd()}${body.slice(existingEnd + "\n        }".length)}`;
+      }
+      const anchor = "\n        return fragmentView;";
+      const index = body.lastIndexOf(anchor);
+      if (index < 0) throw new PatchError(file, "LoginActivity.createView: could not find final fragment return");
+      return `${body.slice(0, index)}\n\n${icon.trimEnd()}${body.slice(index)}`;
+    },
+  );
+  source = replaceRegexOnce(
+    source,
+    /(?=^[ \t]*public\s+void\s+setPage\s*\()/m,
+    "    private void updateServerSwitchButtonVisibility(int page) {\n        if (serverSwitchButton != null) {\n            serverSwitchButton.setVisibility(activityMode == MODE_LOGIN && page == VIEW_PHONE_INPUT\n                    ? View.VISIBLE : View.GONE);\n        }\n    }\n\n",
+    "void updateServerSwitchButtonVisibility(int page)",
+    file,
+    "add server switch icon visibility helper",
+  );
+  source = editDeclarationBody(
+    source,
+    /public\s+void\s+setPage\s*\(/,
+    file,
+    "LoginActivity.setPage",
+    (body) => body.includes("updateServerSwitchButtonVisibility(page);")
+      ? body
+      : `\n        updateServerSwitchButtonVisibility(page);${body}`,
+  );
+  return source;
+}
+
+async function patchLoginIcon(root: string, changed: string[]): Promise<void> {
   const file = "TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java";
-  await editFile(root, file, changed, (initial) => {
-    let source = addJavaImport(initial, "org.telegram.messenger.server_switch.ServerSwitchDialogs", file);
-    source = replaceRegexOnce(
-      source,
-      /(public\s+class\s+LoginActivity\b[^\{]*\{)/,
-      "$1\n    private static final int SERVER_SWITCH_MENU_ID = 0x5357;",
-      "SERVER_SWITCH_MENU_ID = 0x5357",
-      file,
-      "declare a collision-resistant server menu id",
-    );
-    source = replaceRegexOnce(
-      source,
-      /^(\s*)(?=moreButtonView\.setDelegate\s*\(\s*id\s*->\s*\{)/m,
-      "$1moreButtonView.addSubItem(SERVER_SWITCH_MENU_ID, LocaleController.getString(R.string.ServerSwitchTitle));\n$1",
-      "addSubItem(SERVER_SWITCH_MENU_ID",
-      file,
-      "add server selector to the login overflow menu",
-    );
-    source = editDeclarationBody(
-      source,
-      /moreButtonView\.setDelegate\s*\(\s*id\s*->\s*\{/,
-      file,
-      "login overflow delegate",
-      (body) => {
-        if (body.includes("id == SERVER_SWITCH_MENU_ID")) return body;
-        return replaceRegexOnce(
-          body,
-          /if\s*\(id\s*==\s*0\)\s*\{/,
-          "if (id == SERVER_SWITCH_MENU_ID) {\n                ServerSwitchDialogs.showSelector(this, currentAccount, null);\n            } else if (id == 0) {",
-          "id == SERVER_SWITCH_MENU_ID",
-          file,
-          "handle the server selector menu item",
-        );
-      },
-    );
-    return source;
-  });
+  const icon = await template("java-snippets/login-server-icon.java");
+  const legacyButton = await template("java-snippets/legacy-standalone-login-button.java");
+  await editFile(root, file, changed, (initial) => patchLoginIconSource(initial, file, icon, legacyButton));
 }
 
-async function patchStandaloneButton(root: string, changed: string[]): Promise<void> {
-  const file = "TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java";
-  const button = await template("java-snippets/standalone-login-button.java");
-  await editFile(root, file, changed, (initial) => {
-    let source = addJavaImport(initial, "org.telegram.messenger.server_switch.ServerSwitchDialogs", file);
-    source = editDeclarationBody(
-      source,
-      /public\s+View\s+createView\s*\(\s*Context\s+context\s*\)/,
-      file,
-      "LoginActivity.createView",
-      (body) => replaceRegexOnce(
-        body,
-        /(^\s*fragmentView\s*=\s*sizeNotifierFrameLayout;\s*$)/m,
-        `$1\n\n${button.trimEnd()}`,
-        "TextView serverSwitchButton",
-        file,
-        "add the official client's login-page server button",
-      ),
-    );
-    return source;
-  });
-}
-
-export async function applyServerSwitch(root: string, upstream: Upstream): Promise<PatchResult> {
+export async function applyServerSwitch(root: string, _upstream: Upstream): Promise<PatchResult> {
   const changedFiles: string[] = [];
   await installFile(root, "TMessagesProj/src/main/java/org/telegram/messenger/server_switch/ServerSwitchConfig.java", "java/org/telegram/messenger/server_switch/ServerSwitchConfig.java", changedFiles);
   await installFile(root, "TMessagesProj/src/main/java/org/telegram/messenger/server_switch/ServerSwitchDialogs.java", "java/org/telegram/messenger/server_switch/ServerSwitchDialogs.java", changedFiles);
@@ -330,9 +384,7 @@ export async function applyServerSwitch(root: string, upstream: Upstream): Promi
   await patchManagerCpp(root, changedFiles);
   await patchHandshake(root, changedFiles);
 
-  if (upstream.loginUi === "nagram-menu") await patchNagramMenu(root, changedFiles);
-  else if (upstream.loginUi === "more-menu") await patchMoreMenu(root, changedFiles);
-  else await patchStandaloneButton(root, changedFiles);
+  await patchLoginIcon(root, changedFiles);
 
   return { changedFiles };
 }
