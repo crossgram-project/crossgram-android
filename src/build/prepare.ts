@@ -207,8 +207,11 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     if (!headerUpdated.includes(headerMarker)) {
       const commented = /^#cp (ffmpeg\/[^\r\n]+ ffmpeg\/build\/(?:x86|x86_64)\/include\/[^\r\n]+)$/gm;
       const matches = [...headerUpdated.matchAll(commented)];
-      if (matches.length !== 10) {
-        throw new PatchError(headerRelative, `expected 10 disabled x86 header copies, found ${matches.length}`);
+      const hasIsomCopies = ["x86", "x86_64"].every((abi) =>
+        matches.some((match) => match[1]?.endsWith(`ffmpeg/build/${abi}/include/libavformat/isom.h`)),
+      );
+      if (!hasIsomCopies) {
+        throw new PatchError(headerRelative, "could not find disabled x86 FFmpeg isom.h copies");
       }
       headerUpdated = `${headerUpdated.replace(commented, "cp $1").trimEnd()}\n\n${headerMarker}\n`;
     }

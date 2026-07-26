@@ -84,7 +84,7 @@ describe("prepareBuild", () => {
       ].join("\n"),
       "TMessagesProj/jni/patch_ffmpeg.sh": [
         "#!/bin/bash",
-        ...["dv.h", "isom.h", "bytestream.h", "get_bits.h", "golomb.h"].flatMap((header) => [
+        ...["dv.h", "isom.h", "bytestream.h", "get_bits.h", "golomb.h", "vlc.h", "intmath.h"].flatMap((header) => [
           `#cp ffmpeg/lib/${header} ffmpeg/build/x86/include/lib/${header}`,
           `#cp ffmpeg/lib/${header} ffmpeg/build/x86_64/include/lib/${header}`,
         ]),
