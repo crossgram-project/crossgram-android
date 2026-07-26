@@ -181,7 +181,7 @@ checkPreRequisites
 # TODO: fix env variable for NDK
 # NDK=/opt/android-sdk/ndk-bundle
 
-cd ffmpeg
+cd "${CROSSGRAM_FFMPEG_SOURCE:-ffmpeg}"
 
 ## common
 LLVM_PREFIX="${NDK}/toolchains/llvm/prebuilt/${BUILD_PLATFORM}"

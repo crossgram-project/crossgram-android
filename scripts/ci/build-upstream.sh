@@ -66,6 +66,7 @@ if [[ "$CLIENT" == "nnngram" || "$CLIENT" == "nullgram" ]]; then
   if (( ${#X86_NATIVE_TARGETS[@]} > 0 )); then
     JNI_ROOT="$SOURCE_ROOT/TMessagesProj/jni"
     LIBVPX_ROOT="$JNI_ROOT/libvpx"
+    FFMPEG_SOURCE_ROOT="$JNI_ROOT/ffmpeg-source"
     if [[ ! -d "$LIBVPX_ROOT/.git" ]]; then
       git init "$LIBVPX_ROOT"
       git -C "$LIBVPX_ROOT" remote add origin https://github.com/webmproject/libvpx.git
@@ -74,19 +75,27 @@ if [[ "$CLIENT" == "nnngram" || "$CLIENT" == "nullgram" ]]; then
     git -C "$LIBVPX_ROOT" checkout --detach --force FETCH_HEAD
     git -C "$LIBVPX_ROOT" clean -fdx
 
+    if [[ ! -d "$FFMPEG_SOURCE_ROOT/.git" ]]; then
+      git init "$FFMPEG_SOURCE_ROOT"
+      git -C "$FFMPEG_SOURCE_ROOT" remote add origin https://github.com/FFmpeg/FFmpeg.git
+    fi
+    git -C "$FFMPEG_SOURCE_ROOT" fetch --depth=1 origin c3ad886251fdba1eaf9e461a6dd013df19ba54a8
+    git -C "$FFMPEG_SOURCE_ROOT" checkout --detach --force FETCH_HEAD
+    git -C "$FFMPEG_SOURCE_ROOT" clean -fdx
+
     mkdir -p "$JNI_ROOT/patches"
     install -m 644 "$PATCHER_ROOT/scripts/native/libvpx-x86-fix.patch" \
       "$JNI_ROOT/patches/libvpx_x86_fix.patch"
     cd "$JNI_ROOT"
     NDK="$ANDROID_NDK_HOME" bash "$PATCHER_ROOT/scripts/native/build-libvpx-clang.sh" \
       "${X86_NATIVE_TARGETS[@]}"
-    NDK="$ANDROID_NDK_HOME" bash "$PATCHER_ROOT/scripts/native/build-ffmpeg-clang.sh" \
-      "${X86_NATIVE_TARGETS[@]}"
+    NDK="$ANDROID_NDK_HOME" CROSSGRAM_FFMPEG_SOURCE=ffmpeg-source \
+      bash "$PATCHER_ROOT/scripts/native/build-ffmpeg-clang.sh" "${X86_NATIVE_TARGETS[@]}"
 
     for abi in "${X86_ABIS[@]}"; do
       install -d "$JNI_ROOT/ffmpeg/$abi"
       for library in libavcodec.a libavformat.a libavutil.a libswresample.a libswscale.a; do
-        install -m 644 "$JNI_ROOT/ffmpeg/build/$abi/lib/$library" \
+        install -m 644 "$JNI_ROOT/ffmpeg-source/build/$abi/lib/$library" \
           "$JNI_ROOT/ffmpeg/$abi/$library"
       done
       install -m 644 "$JNI_ROOT/libvpx/build/$abi/lib/libvpx.a" \
