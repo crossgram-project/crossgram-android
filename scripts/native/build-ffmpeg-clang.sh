@@ -109,7 +109,7 @@ function build_one {
 	--enable-swscale \
 	--enable-protocol=file \
 	--enable-decoder=h264 \
-	--enable-decoder=h265 \
+	--enable-decoder=hevc \
 	--enable-decoder=mpeg4 \
 	--enable-decoder=mjpeg \
 	--enable-decoder=gif \
@@ -206,7 +206,10 @@ function build {
 				OPTIMIZE_CFLAGS="-march=x86-64 -msse4.2 -mpopcnt"
 				PREFIX=./build/$CPU
 				LIBVPXPREFIX=../libvpx/build/x86_64
-				ADDITIONAL_CONFIGURE_FLAG="--disable-asm"
+				# FFmpeg 7's x86 transform table is guarded by x86asm. Disabling all
+				# assembly while leaving x86asm enabled creates a static archive with
+				# references to codelets whose implementations were never compiled.
+				ADDITIONAL_CONFIGURE_FLAG="--enable-asm --enable-inline-asm --enable-x86asm --enable-optimizations"
 				build_one
 			;;
 			arm64)
