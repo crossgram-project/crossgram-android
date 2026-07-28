@@ -13,6 +13,8 @@ const variantAbis: Record<BuildVariant, readonly string[]> = {
   universal: ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"],
 };
 
+const CROSSGRAM_RELEASE_CERTIFICATE_SHA1 = "2517271987B30C125F1A4A85FC613F2735489B2A";
+
 function gradleOverride(abis: readonly string[], kotlinDsl: boolean, includeSplits: boolean): string {
   const values = abis.map((abi) => `'${abi}'`).join(", ");
   if (kotlinDsl) {
@@ -140,6 +142,21 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     if (await writeUtf8IfChanged(jniFile, jniUpdated)) changed.push(jniRelative);
   }
   if (upstream.id === "nagram") {
+    const integrityRelative = "TMessagesProj/jni/integrity/integrity.cpp";
+    const integrityFile = path.join(root, integrityRelative);
+    const integritySource = await readUtf8(integrityFile);
+    const signaturePattern = /^static const char \*SIGN = "[0-9A-Fa-f]{40}";.*$/gm;
+    const signatureMatches = [...integritySource.matchAll(signaturePattern)];
+    if (signatureMatches.length !== 1) {
+      throw new PatchError(
+        integrityRelative,
+        `expected one upstream certificate fingerprint, found ${signatureMatches.length}`,
+      );
+    }
+    const signatureReplacement = `static const char *SIGN = "${CROSSGRAM_RELEASE_CERTIFICATE_SHA1}"; // CROSSGRAM release certificate`;
+    const integrityUpdated = integritySource.replace(signaturePattern, signatureReplacement);
+    if (await writeUtf8IfChanged(integrityFile, integrityUpdated)) changed.push(integrityRelative);
+
     for (const relative of [
       "TMessagesProj/jni/build_boringssl.sh",
       "TMessagesProj/jni/build_libvpx_clang.sh",

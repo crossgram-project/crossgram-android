@@ -78,6 +78,8 @@ describe("prepareBuild", () => {
     const relative = "TMessagesProj/build.gradle";
     const root = await fixture(relative, "plugins { id 'com.android.application' }\nandroid {}\n");
     const nativeFiles: Record<string, string> = {
+      "TMessagesProj/jni/integrity/integrity.cpp":
+        'static const char *SIGN = "3A0F57FE06485D0B90D0ACD990E3A30328E3988D";\n',
       "TMessagesProj/jni/build_boringssl.sh": "build arm64 arm\n",
       "TMessagesProj/jni/build_ffmpeg_clang.sh": "build arm64 arm\n",
       "TMessagesProj/jni/build_libvpx_clang.sh": [
@@ -117,6 +119,35 @@ describe("prepareBuild", () => {
     const headers = await readFile(path.join(root, "TMessagesProj/jni/patch_ffmpeg.sh"), "utf8");
     expect(headers).not.toContain("#cp ffmpeg/");
     expect(headers).toContain("CROSSGRAM x86 FFmpeg internal headers enabled");
+    const integrity = await readFile(
+      path.join(root, "TMessagesProj/jni/integrity/integrity.cpp"),
+      "utf8",
+    );
+    expect(integrity).toContain("2517271987B30C125F1A4A85FC613F2735489B2A");
+    expect(integrity).toContain("CROSSGRAM release certificate");
+    expect(integrity).not.toContain("3A0F57FE06485D0B90D0ACD990E3A30328E3988D");
     expect(await prepareBuild(root, getUpstream("nagram"), "x86_64")).toEqual([]);
+  });
+
+  it("fails loudly if Nagram moves or duplicates its certificate fingerprint", async () => {
+    const relative = "TMessagesProj/build.gradle";
+    const root = await fixture(relative, "plugins { id 'com.android.application' }\nandroid {}\n");
+    const nativeFiles = [
+      "TMessagesProj/jni/build_boringssl.sh",
+      "TMessagesProj/jni/build_ffmpeg_clang.sh",
+      "TMessagesProj/jni/build_libvpx_clang.sh",
+      "TMessagesProj/jni/patch_ffmpeg.sh",
+    ];
+    for (const nativeRelative of nativeFiles) {
+      const file = path.join(root, nativeRelative);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, "", "utf8");
+    }
+    const integrity = path.join(root, "TMessagesProj/jni/integrity/integrity.cpp");
+    await mkdir(path.dirname(integrity), { recursive: true });
+    await writeFile(integrity, "// upstream layout changed\n", "utf8");
+
+    await expect(prepareBuild(root, getUpstream("nagram"), "x86_64"))
+      .rejects.toThrow("expected one upstream certificate fingerprint, found 0");
   });
 });
