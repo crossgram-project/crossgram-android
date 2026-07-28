@@ -59,6 +59,19 @@ yarn prepare-build --client nagram --source /path/to/Nagram --variant arm64
 yarn check
 ```
 
+### AVD E2E
+
+启动一个与 APK ABI 匹配、已完成开机的 AVD 后，可以运行冷启动、前后台恢复、横竖屏和断网启动冒烟测试：
+
+```bash
+yarn e2e:android \
+  --package xyz.nextalone.nagram.crossgram.qq \
+  --apk /path/to/nagram-x86_64-qq.apk
+```
+
+测试默认清除应用数据，并断言首次启动页包含 `Start Messaging`。调试已安装的应用时可加
+`--keep-data --expected-text "Your phone number"`。
+
 `--client` 可选 `nagram`、`telegram`、`nnngram`、`nullgram`。patch 和构建准备操作可重复执行；当上游语义锚点漂移、消失或出现歧义时会明确失败，避免静默修改错误位置。
 
 ## 品牌与架构

@@ -13,6 +13,7 @@
     "check": "tsc -p tsconfig.json --noEmit && vitest run",
     "patch:source": "tsx src/cli.ts patch",
     "discover": "tsx src/cli.ts discover",
+    "e2e:android": "node scripts/e2e/android-smoke.mjs",
     "prepare-build": "tsx src/cli.ts prepare-build",
     "test": "vitest run"
   },
