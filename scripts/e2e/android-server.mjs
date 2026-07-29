@@ -48,8 +48,9 @@ function stableId(value) {
   return (hash >>> 0) % 0x7ffffffe + 1;
 }
 
-function start(component, extras) {
+function start(component, extras, action) {
   const args = ["shell", "am", "start", "-W", "-n", component];
+  if (action) args.push("-a", action);
   for (const [type, name, value] of extras) args.push(type, name, String(value));
   adb(args);
 }
@@ -68,15 +69,16 @@ async function waitFor(marker, timeoutMs = 45_000) {
   throw new Error(`Timed out waiting for Android marker: ${marker}\n${logs()}`);
 }
 
-async function dispatch(component, command, extras = []) {
-  start(component, [["--es", "crossgram_e2e_command", command], ...extras]);
-  return waitFor(`command_dispatched:${command}`);
+async function dispatch(component, action, command, extras = []) {
+  start(component, [["--es", "crossgram_e2e_command", command], ...extras], action);
 }
 
 async function main() {
   const command = option("command", "all");
   const packageName = option("package", "xyz.nextalone.nagram.crossgram.qq");
-  const component = `${packageName}/org.telegram.ui.CrossgramE2eActivity`;
+  const dispatcherComponent = `${packageName}/org.telegram.ui.CrossgramE2eActivity`;
+  const launchComponent = `${packageName}/org.telegram.ui.LaunchActivity`;
+  const e2eAction = "org.telegram.messenger.CROSSGRAM_E2E";
   const relayRoot = path.resolve(option("relay-root", path.join(patcherRoot, "../crossgram")));
   const host = option("host", "10.0.2.2");
   const port = Number(option("port", "4430"));
@@ -103,7 +105,7 @@ async function main() {
     const code = loginCode(account.totpSecret);
 
     adb(["shell", "am", "force-stop", packageName]);
-    start(component, [
+    start(dispatcherComponent, [
       ["--es", "crossgram_e2e_command", "login"],
       ["--es", "crossgram_e2e_server_config_base64", Buffer.from(JSON.stringify(config)).toString("base64")],
       ["--es", "crossgram_e2e_phone", account.virtualPhone],
@@ -111,12 +113,17 @@ async function main() {
     ]);
     await waitFor("login_code_submitted");
     await new Promise((resolve) => setTimeout(resolve, 2_000));
-    await dispatch(component, "state");
+    await dispatch(launchComponent, e2eAction, "state");
     await waitFor("state activated=true");
   }
 
+  if (command === "state") {
+    await dispatch(launchComponent, e2eAction, "state");
+    await waitFor("state activated=");
+  }
+
   if (command === "dialogs" || command === "all") {
-    await dispatch(component, "dialogs");
+    await dispatch(launchComponent, e2eAction, "dialogs");
     await waitFor("page_opened:dialogs");
   }
 
@@ -126,7 +133,7 @@ async function main() {
       if (command !== "all") throw new Error("--conversation is required for chat/send");
     } else {
       const peerId = stableId(`peer:${conversation}`);
-      await dispatch(component, "chat", [
+      await dispatch(launchComponent, e2eAction, "chat", [
         ["--es", "crossgram_e2e_peer_type", "chat"],
         ["--el", "crossgram_e2e_peer_id", peerId],
       ]);
@@ -134,7 +141,7 @@ async function main() {
 
       const message = option("message");
       if ((command === "send" || message) && message) {
-        await dispatch(component, "send", [
+        await dispatch(launchComponent, e2eAction, "send", [
           ["--es", "crossgram_e2e_peer_type", "chat"],
           ["--el", "crossgram_e2e_peer_id", peerId],
           ["--es", "crossgram_e2e_message", message],
