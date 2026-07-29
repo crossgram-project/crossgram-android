@@ -3,7 +3,11 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { patchLaunchE2eSource, patchLoginE2eSource } from "../features/server-e2e/patch.js";
+import {
+  patchLaunchE2eSource,
+  patchLoginE2eSource,
+  patchNativeE2eSource,
+} from "../features/server-e2e/patch.js";
 
 const featureRoot = path.resolve("features/server-e2e/files");
 
@@ -73,6 +77,20 @@ describe("Android server E2E source driver", () => {
     expect(manifest).toContain('android:exported="true"');
     expect(activity).toContain("if (!BuildConfig.DEBUG)");
     expect(activity).not.toContain("crossgram_e2e_code\"");
+  });
+
+  it("allows only the dedicated E2E patch to use an ephemeral debug signature", () => {
+    const source = `jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+    if (verifySign(env) != JNI_OK) {
+        return JNI_ERR;
+    }
+    return JNI_VERSION_1_6;
+}`;
+    const patched = patchNativeE2eSource(source, "jni.c");
+
+    expect(patched).toContain("CROSSGRAM E2E: accept the ephemeral debug signing certificate");
+    expect(patched).not.toContain("verifySign(env)");
+    expect(patchNativeE2eSource(patched, "jni.c")).toBe(patched);
   });
 
   it("sends follow-up commands straight to the running LaunchActivity", async () => {
