@@ -63,6 +63,10 @@ function logs() {
   return adb(["logcat", "-d", "-s", "CrossgramE2E:I", "*:S"]);
 }
 
+function transportLogs() {
+  return adb(["logcat", "-d", "-s", "CrossgramDirectDownload:D", "*:S"]);
+}
+
 async function waitFor(marker, timeoutMs = 45_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -85,6 +89,17 @@ async function waitForOutcome(successMarker, failureMarker, timeoutMs = 45_000) 
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timed out waiting for Android marker: ${successMarker}\n${logs()}`);
+}
+
+async function waitForTransport(transport, fileName, timeoutMs = 45_000) {
+  const marker = `crossgram_download_transport=${transport} file=${fileName}`;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const output = transportLogs();
+    if (output.includes(marker)) return output;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Timed out waiting for Android transport marker: ${marker}\n${transportLogs()}`);
 }
 
 function markerFields(output, marker) {
@@ -278,7 +293,7 @@ async function main() {
   }
 
   const peerCommands = new Set([
-    "chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction",
+    "chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction", "download",
   ]);
   if (peerCommands.has(command) || command === "all") {
     const conversation = option("conversation");
@@ -323,7 +338,7 @@ async function main() {
         }
       }
 
-      if (["read", "reply", "edit", "delete", "forward", "reaction"].includes(command)) {
+      if (["read", "reply", "edit", "delete", "forward", "reaction", "download"].includes(command)) {
         const target = resolveMessageTarget(
           relayRoot,
           conversation,
@@ -336,7 +351,32 @@ async function main() {
           ["--ei", "crossgram_e2e_target_message_id", target.tlMessageId],
         ];
 
-        if (command === "read") {
+        if (command === "download") {
+          const [media] = inspectSql(
+            relayRoot,
+            `SELECT id, size FROM mtproto_im_media
+              WHERE messageId=${Number(target.id)} AND size IS NOT NULL AND size > 0
+              ORDER BY ordinal, id LIMIT 1`,
+          );
+          if (!media) throw new Error("Relay message target has no downloadable media");
+          const transport = option("transport", "direct");
+          if (transport !== "direct" && transport !== "relay") {
+            throw new Error("--transport must be direct or relay");
+          }
+          await dispatch(launchComponent, e2eAction, "download", [
+            ...targetExtras,
+            ["--el", "crossgram_e2e_media_id", media.id],
+            ["--el", "crossgram_e2e_expected_size", media.size],
+            ["--ez", "crossgram_e2e_force_http_failure", transport === "relay"],
+          ]);
+          await waitForOutcome("download_started", "download_failed");
+          const output = await waitForOutcome("download_loaded", "download_failed", 90_000);
+          const fields = markerFields(output, "download_loaded");
+          if (Number(fields.media_id) !== Number(media.id) || Number(fields.bytes) !== Number(media.size)) {
+            throw new Error(`Android download evidence mismatch: media=${fields.media_id}, bytes=${fields.bytes}`);
+          }
+          await waitForTransport(transport, fields.file);
+        } else if (command === "read") {
           await dispatch(launchComponent, e2eAction, "read", targetExtras);
           await waitFor("function_called:markDialogAsRead");
         } else if (command === "reply") {

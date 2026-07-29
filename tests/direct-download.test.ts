@@ -59,6 +59,7 @@ describe("Android direct-download patch", () => {
     const patched = patchFileLoadOperation(fixture);
     expect(patched).toContain("CrossgramDirectDownload.resolve(currentAccount, datacenterId, location");
     expect(patched).toContain("CrossgramDirectDownload.loadRange(");
+    expect(patched).toContain("buffer.position(0);");
     expect(patched).toContain("request = null;");
     expect(patched).toContain("crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_RELAY;");
     expect(patched).toContain("public String getCrossgramDownloadTransport()");
@@ -73,6 +74,17 @@ describe("Android direct-download patch", () => {
     ), "utf8");
     expect(runtime).toContain("GET_FILE_URL_CONSTRUCTOR = 0x7520f6ea");
     expect(runtime).toContain('"crossgram_download_transport=" + transport');
+  });
+
+  it("migrates an already-patched direct download buffer to a readable position", () => {
+    const previous = patchFileLoadOperation(fixture).replace(
+      "                        buffer.position(0);\n",
+      "",
+    );
+
+    expect(patchFileLoadOperation(previous)).toContain(
+      "buffer.writeBytes(bytes);\n                        buffer.position(0);",
+    );
   });
 
   it("installs both Java runtime files from the packaged template tree", async () => {

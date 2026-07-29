@@ -56,6 +56,7 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
   const helperNames = [
     "runCrossgramE2eHistory",
     "runCrossgramE2eWithMessage",
+    "runCrossgramE2eDownload",
     "runCrossgramE2eSearch",
   ];
   const helperOffsets = helperNames.map((name) => method.indexOf(`    private boolean ${name}(`));
@@ -153,6 +154,45 @@ export function patchNativeE2eSource(initial: string, file: string): string {
   );
 }
 
+export function patchDirectDownloadE2eSource(initial: string, file: string): string {
+  let source = replaceRegexOnce(
+    initial,
+    /(^[ \t]*private static final ConcurrentHashMap<Integer, HttpURLConnection\[\]> HTTP_REQUESTS = new ConcurrentHashMap<>\(\);[ \t]*$)/m,
+    `$1
+    private static volatile boolean crossgramE2eForceHttpFailure;`,
+    "crossgramE2eForceHttpFailure",
+    file,
+    "add the debug-only direct HTTP failure hook",
+  );
+  source = replaceRegexOnce(
+    source,
+    /(?=^[ \t]*private CrossgramDirectDownload\(\) \{\}[ \t]*$)/m,
+    `    public static void setCrossgramE2eForceHttpFailure(boolean value) {
+        if (!org.telegram.messenger.BuildConfig.DEBUG) {
+            throw new IllegalStateException("E2E hook requires a debug build");
+        }
+        crossgramE2eForceHttpFailure = value;
+    }
+
+`,
+    "setCrossgramE2eForceHttpFailure(boolean value)",
+    file,
+    "expose the debug-only direct HTTP failure hook",
+  );
+  source = replaceRegexOnce(
+    source,
+    /^([ \t]*)callback\.onResult\(new ResolvedUrl\(url, expiresAt\), null\);[ \t]*$/m,
+    `$1if (crossgramE2eForceHttpFailure) {
+$1    url = "http://127.0.0.1:1/crossgram-e2e-force-failure";
+$1}
+$1callback.onResult(new ResolvedUrl(url, expiresAt), null);`,
+    "crossgram-e2e-force-failure",
+    file,
+    "redirect the next debug direct HTTP attempt to a closed port",
+  );
+  return source;
+}
+
 export async function applyServerE2e(root: string): Promise<PatchResult> {
   const changedFiles: string[] = [];
   await installFile(
@@ -177,7 +217,13 @@ export async function applyServerE2e(root: string): Promise<PatchResult> {
     root,
     "TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java",
     changedFiles,
-    async (source) => patchLaunchE2eSource(source, "LaunchActivity.java", await template("java-snippets/launch-method.java")),
+      async (source) => patchLaunchE2eSource(source, "LaunchActivity.java", await template("java-snippets/launch-method.java")),
+  );
+  await editFile(
+    root,
+    "TMessagesProj/src/main/java/org/telegram/messenger/crossgram_direct/CrossgramDirectDownload.java",
+    changedFiles,
+    (source) => patchDirectDownloadE2eSource(source, "CrossgramDirectDownload.java"),
   );
   await editFile(
     root,
