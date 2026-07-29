@@ -13,6 +13,8 @@
     "check": "tsc -p tsconfig.json --noEmit && vitest run",
     "patch:source": "tsx src/cli.ts patch",
     "discover": "tsx src/cli.ts discover",
+    "e2e:source": "tsx src/cli.ts e2e",
+    "e2e:android-server": "node scripts/e2e/android-server.mjs",
     "prepare-build": "tsx src/cli.ts prepare-build",
     "test": "vitest run"
   },

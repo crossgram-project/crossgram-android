@@ -1,0 +1,103 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { readUtf8, writeUtf8IfChanged } from "../../src/core/files.js";
+import { editDeclarationBody, replaceRegexOnce } from "../../src/core/text-edit.js";
+
+const featureRoot = path.dirname(fileURLToPath(import.meta.url));
+
+export interface PatchResult {
+  changedFiles: string[];
+}
+
+async function template(relative: string): Promise<string> {
+  return readUtf8(path.join(featureRoot, "files", relative));
+}
+
+async function editFile(
+  root: string,
+  relative: string,
+  changed: string[],
+  edit: (source: string) => string | Promise<string>,
+): Promise<void> {
+  const file = path.join(root, relative);
+  const source = await readUtf8(file);
+  const updated = await edit(source);
+  if (await writeUtf8IfChanged(file, updated)) changed.push(relative);
+}
+
+async function installFile(root: string, target: string, source: string, changed: string[]): Promise<void> {
+  if (await writeUtf8IfChanged(path.join(root, target), await template(source))) changed.push(target);
+}
+
+export function patchLoginE2eSource(initial: string, file: string, methods: string): string {
+  let source = replaceRegexOnce(
+    initial,
+    /(?=^[ \t]*@Override\r?$\r?\n^[ \t]*public\s+void\s+saveSelfArgs\(Bundle outState\))/m,
+    `${methods.trimEnd()}\n\n`,
+    "void runCrossgramE2eLogin(String phone, String code)",
+    file,
+    "add direct login page driver",
+  );
+  source = editDeclarationBody(
+    source,
+    /public\s+void\s+setPage\s*\(/,
+    file,
+    "LoginActivity.setPage",
+    (body) => {
+      if (body.includes("maybeRunCrossgramE2eCode(page);")) return body;
+      return `${body.trimEnd()}\n        maybeRunCrossgramE2eCode(page);\n    `;
+    },
+  );
+  return source;
+}
+
+export function patchLaunchE2eSource(initial: string, file: string, method: string): string {
+  let source = replaceRegexOnce(
+    initial,
+    /(?=^[ \t]*private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword\)\s*\{)/m,
+    `\n${method.trimEnd()}\n\n`,
+    "boolean handleCrossgramE2eIntent(Intent intent)",
+    file,
+    "add direct page and function dispatcher",
+  );
+  source = editDeclarationBody(
+    source,
+    /private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword, Browser\.Progress progress, boolean rebuildFragments, boolean openedTelegram\)\s*\{/,
+    file,
+    "LaunchActivity.handleIntent",
+    (body) => body.includes("handleCrossgramE2eIntent(intent)")
+      ? body
+      : `\n        if (handleCrossgramE2eIntent(intent)) {\n            return true;\n        }${body}`,
+  );
+  return source;
+}
+
+export async function applyServerE2e(root: string): Promise<PatchResult> {
+  const changedFiles: string[] = [];
+  await installFile(
+    root,
+    "TMessagesProj/src/main/java/org/telegram/ui/CrossgramE2eActivity.java",
+    "java/org/telegram/ui/CrossgramE2eActivity.java",
+    changedFiles,
+  );
+  await installFile(
+    root,
+    "TMessagesProj/src/debug/AndroidManifest.xml",
+    "debug/AndroidManifest.xml",
+    changedFiles,
+  );
+  await editFile(
+    root,
+    "TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java",
+    changedFiles,
+    async (source) => patchLoginE2eSource(source, "LoginActivity.java", await template("java-snippets/login-methods.java")),
+  );
+  await editFile(
+    root,
+    "TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java",
+    changedFiles,
+    async (source) => patchLaunchE2eSource(source, "LaunchActivity.java", await template("java-snippets/launch-method.java")),
+  );
+  return { changedFiles };
+}

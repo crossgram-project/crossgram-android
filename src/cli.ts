@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 
+import { applyServerE2e } from "../features/server-e2e/patch.js";
 import { applyServerSwitch } from "../features/server-switch/patch.js";
 import { applyBrand, getBrand } from "./branding.js";
 import { prepareBuild, type BuildVariant } from "./build/prepare.js";
@@ -23,6 +24,12 @@ async function main(): Promise<void> {
     const root = path.resolve(option("source")!);
     const result = await applyServerSwitch(root, upstream);
     console.log(JSON.stringify({ client: upstream.id, source: root, ...result }, null, 2));
+  } else if (command === "e2e") {
+    const upstream = getUpstream(option("client")!);
+    if (upstream.id !== "nagram") throw new Error("The Android server E2E driver currently targets Nagram");
+    const root = path.resolve(option("source")!);
+    const result = await applyServerE2e(root);
+    console.log(JSON.stringify({ client: upstream.id, source: root, ...result }, null, 2));
   } else if (command === "discover") {
     const result = await emitGithubMatrices(option("github-output", false));
     console.log(JSON.stringify(result, null, 2));
@@ -39,7 +46,7 @@ async function main(): Promise<void> {
     const changedFiles = await applyBrand(root, upstream, brand);
     console.log(JSON.stringify({ client: upstream.id, brand: brand.id, changedFiles }, null, 2));
   } else {
-    throw new Error("Usage: cli.ts <patch|discover|prepare-build|brand> [options]");
+    throw new Error("Usage: cli.ts <patch|e2e|discover|prepare-build|brand> [options]");
   }
 }
 
