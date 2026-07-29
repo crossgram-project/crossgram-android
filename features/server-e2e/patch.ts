@@ -190,6 +190,17 @@ $1callback.onResult(new ResolvedUrl(url, expiresAt), null);`,
     file,
     "redirect the next debug direct HTTP attempt to a closed port",
   );
+  source = replaceRegexOnce(
+    source,
+    /^([ \t]*)result = CrossgramDirectHttp\.loadRange\(url, offset, limit, handle\);[ \t]*$/m,
+    `$1if (crossgramE2eForceHttpFailure) {
+$1    Thread.sleep(8000);
+$1}
+$1result = CrossgramDirectHttp.loadRange(url, offset, limit, handle);`,
+    "Thread.sleep(8000);",
+    file,
+    "keep the forced-fallback loading state visible for UI screenshots",
+  );
   return source;
 }
 

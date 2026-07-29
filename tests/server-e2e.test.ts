@@ -155,12 +155,16 @@ describe("Android server E2E source driver", () => {
     void resolved(String url, long expiresAt) {
         callback.onResult(new ResolvedUrl(url, expiresAt), null);
     }
+    void range(String url, long offset, int limit, HttpURLConnection[] handle) throws Exception {
+        result = CrossgramDirectHttp.loadRange(url, offset, limit, handle);
+    }
 }`;
     const patched = patchDirectDownloadE2eSource(source, "CrossgramDirectDownload.java");
 
     expect(patched).toContain("setCrossgramE2eForceHttpFailure(boolean value)");
     expect(patched).toContain("if (!org.telegram.messenger.BuildConfig.DEBUG)");
     expect(patched).toContain("http://127.0.0.1:1/crossgram-e2e-force-failure");
+    expect(patched).toContain("Thread.sleep(8000);");
     expect(patchDirectDownloadE2eSource(patched, "CrossgramDirectDownload.java")).toBe(patched);
   });
 
