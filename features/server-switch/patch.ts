@@ -186,6 +186,29 @@ function replaceDelegateCalls(
   return updated;
 }
 
+export function discardLateSpecialConfig(
+  body: string,
+  file: string,
+  label = "applyDnsConfig special-config race guard",
+): string {
+  const marker = "// CROSSGRAM: discard a late official DNS config after switching servers.";
+  if (body.includes(marker)) return body;
+  return replaceRegexOnce(
+    body,
+    /(^[ \t]*scheduleTask\(\[&, buffer, phone, date\] \{[ \t]*$)/m,
+    `$1
+        ${marker}
+        if (!enableSpecialConfig) {
+            requestingSecondAddress = 0;
+            buffer->reuse();
+            return;
+        }`,
+    marker,
+    file,
+    label,
+  );
+}
+
 async function patchManagerCpp(root: string, changed: string[]): Promise<void> {
   const file = "TMessagesProj/jni/tgnet/ConnectionsManager.cpp";
   const methods = await template("native/manager-methods.cpp");
@@ -215,7 +238,10 @@ async function patchManagerCpp(root: string, changed: string[]): Promise<void> {
       /void\s+ConnectionsManager::applyDnsConfig\s*\(/,
       file,
       "ConnectionsManager::applyDnsConfig",
-      (body) => replaceDelegateCalls(body, file, "applyDnsConfig special-config guard", 2, false),
+      (body) => discardLateSpecialConfig(
+        replaceDelegateCalls(body, file, "applyDnsConfig special-config guard", 2, false),
+        file,
+      ),
     );
     source = replaceRegexOnce(
       source,
@@ -306,7 +332,13 @@ export function patchLoginIconSource(
   legacyButton: string,
 ): string {
   let source = removeLegacyLoginEntries(initial, file, legacyButton);
+  source = addJavaImport(source, "org.telegram.messenger.server_switch.ServerSwitchConfig", file);
   source = addJavaImport(source, "org.telegram.messenger.server_switch.ServerSwitchDialogs", file);
+  source = source.replace(
+    `if (!testBackend && "999".equals(codeField.getText().toString())) {`,
+    `if (!testBackend && "999".equals(codeField.getText().toString())
+                        && ServerSwitchConfig.getSelectedServerId(currentAccount).isEmpty()) {`,
+  );
   source = replaceRegexOnce(
     source,
     /(^[ \t]*private\s+ImageView\s+backButtonView;[ \t]*$)/m,

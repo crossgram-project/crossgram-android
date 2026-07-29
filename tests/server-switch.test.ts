@@ -3,7 +3,10 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { patchLoginIconSource } from "../features/server-switch/patch.js";
+import {
+  discardLateSpecialConfig,
+  patchLoginIconSource,
+} from "../features/server-switch/patch.js";
 
 const root = path.resolve("features/server-switch/files");
 const file = "TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java";
@@ -30,6 +33,20 @@ ${extra}
     }
 }
 `;
+}
+
+function nagramLoginActivity(): string {
+  return loginActivity(`    private boolean testBackend;
+    private int currentAccount;
+    private final class PhoneView {
+        private final Object codeField = new Object();
+        void submit() {
+            if (!testBackend && "999".equals(codeField.getText().toString())) {
+                testBackend = true;
+            }
+        }
+    }
+`);
 }
 
 describe("server switch login entry", () => {
@@ -91,6 +108,17 @@ describe("server switch login entry", () => {
     expect(patched).toContain("phoneView.testBackendCheckBox");
     expect(patched.match(/ServerSwitchDialogs\.showSelector/g)).toHaveLength(1);
   });
+
+  it("does not let Nagram's 999 shortcut leave a selected custom server", async () => {
+    const icon = await readFile(path.join(root, "java-snippets/login-server-icon.java"), "utf8");
+    const legacy = await readFile(path.join(root, "java-snippets/legacy-standalone-login-button.java"), "utf8");
+    const patched = patchLoginIconSource(nagramLoginActivity(), file, icon, legacy);
+
+    expect(patched).toContain("import org.telegram.messenger.server_switch.ServerSwitchConfig;");
+    expect(patched).toContain(`if (!testBackend && "999".equals(codeField.getText().toString())
+                        && ServerSwitchConfig.getSelectedServerId(currentAccount).isEmpty()) {`);
+    expect(patchLoginIconSource(patched, file, icon, legacy)).toBe(patched);
+  });
 });
 
 describe("server switch initialization", () => {
@@ -112,5 +140,29 @@ describe("server switch initialization", () => {
     expect(wrapper).toContain("jboolean resetDatacenters");
     expect(patcher).toContain("ServerSwitchConfig.applyForInitialization(currentAccount);");
     expect(patcher).toContain("Ljava/lang/String;ZZ)V");
+  });
+
+  it("drops an already in-flight official DNS config after selecting a custom server", () => {
+    const body = `
+    scheduleTask([&, buffer, phone, date] {
+        TL_help_configSimple *config = Datacenter::decodeSimpleConfig(buffer);
+        if (config == nullptr) {
+            delegate->onRequestNewServerIpAndPort(requestingSecondAddress, instanceNum);
+        }
+        buffer->reuse();
+    });
+`;
+    const patched = discardLateSpecialConfig(body, "ConnectionsManager.cpp");
+
+    expect(patched).toContain("discard a late official DNS config after switching servers");
+    expect(patched).toContain(`if (!enableSpecialConfig) {
+            requestingSecondAddress = 0;
+            buffer->reuse();
+            return;
+        }`);
+    expect(patched.indexOf("if (!enableSpecialConfig)")).toBeLessThan(
+      patched.indexOf("Datacenter::decodeSimpleConfig(buffer)"),
+    );
+    expect(discardLateSpecialConfig(patched, "ConnectionsManager.cpp")).toBe(patched);
   });
 });
