@@ -1,0 +1,141 @@
+package org.telegram.messenger.crossgram_direct;
+
+import org.json.JSONObject;
+import org.telegram.messenger.FileLog;
+import org.telegram.messenger.Utilities;
+import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.InputSerializedData;
+import org.telegram.tgnet.OutputSerializedData;
+import org.telegram.tgnet.TLObject;
+import org.telegram.tgnet.TLRPC;
+
+import java.net.HttpURLConnection;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/** Crossgram's optional direct-download transport. Every failure falls back to upload.getFile. */
+public final class CrossgramDirectDownload {
+    public static final String TRANSPORT_DIRECT = "direct";
+    public static final String TRANSPORT_RELAY = "relay";
+
+    private static final int GET_FILE_URL_CONSTRUCTOR = 0x7520f6ea;
+    private static final AtomicInteger NEXT_HTTP_TOKEN = new AtomicInteger(-1);
+    private static final ConcurrentHashMap<Integer, HttpURLConnection[]> HTTP_REQUESTS = new ConcurrentHashMap<>();
+
+    public interface ResolveCallback {
+        void onResult(ResolvedUrl result, String error);
+    }
+
+    public interface RangeCallback {
+        void onResult(byte[] bytes, String error);
+    }
+
+    public static final class ResolvedUrl {
+        public final String url;
+        public final long expiresAt;
+
+        ResolvedUrl(String url, long expiresAt) {
+            this.url = url;
+            this.expiresAt = expiresAt;
+        }
+    }
+
+    private CrossgramDirectDownload() {}
+
+    public static boolean supports(TLRPC.InputFileLocation location) {
+        if (!(location instanceof TLRPC.TL_inputDocumentFileLocation)
+                && !(location instanceof TLRPC.TL_inputPhotoFileLocation)) {
+            return false;
+        }
+        byte[] reference = location.file_reference;
+        if (reference == null) return false;
+        String value = new String(reference, StandardCharsets.UTF_8);
+        return value.matches("bridge-media:[1-9][0-9]*");
+    }
+
+    public static void resolve(int account, int dcId, TLRPC.InputFileLocation location, ResolveCallback callback) {
+        GetFileUrl request = new GetFileUrl();
+        request.location = location;
+        ConnectionsManager.getInstance(account).sendRequest(request, (response, error) -> {
+            if (!(response instanceof TLRPC.TL_dataJSON)) {
+                callback.onResult(null, error != null ? error.text : "DIRECT_URL_INVALID_RESPONSE");
+                return;
+            }
+            try {
+                JSONObject json = new JSONObject(((TLRPC.TL_dataJSON) response).data);
+                String url = json.getString("url");
+                long expiresAt = json.getLong("expiresAt");
+                if ((!url.startsWith("https://") && !url.startsWith("http://"))
+                        || expiresAt <= System.currentTimeMillis()
+                        || !json.optBoolean("supportsRange", false)) {
+                    throw new IllegalArgumentException("invalid direct URL metadata");
+                }
+                callback.onResult(new ResolvedUrl(url, expiresAt), null);
+            } catch (Exception parseError) {
+                callback.onResult(null, "DIRECT_URL_INVALID_JSON");
+            }
+        }, null, null, 0, dcId, ConnectionsManager.ConnectionTypeGeneric, true);
+    }
+
+    public static int loadRange(String url, long offset, int limit, RangeCallback callback) {
+        int token = NEXT_HTTP_TOKEN.getAndDecrement();
+        HttpURLConnection[] handle = new HttpURLConnection[1];
+        HTTP_REQUESTS.put(token, handle);
+        Utilities.globalQueue.postRunnable(() -> {
+            byte[] result = null;
+            String error = null;
+            try {
+                result = CrossgramDirectHttp.loadRange(url, offset, limit, handle);
+            } catch (Exception exception) {
+                error = exception.getMessage() != null ? exception.getMessage() : exception.getClass().getSimpleName();
+            }
+            if (HTTP_REQUESTS.remove(token) != handle) return;
+            byte[] finalResult = result;
+            String finalError = error;
+            Utilities.stageQueue.postRunnable(() -> callback.onResult(finalResult, finalError));
+        });
+        return token;
+    }
+
+    public static void cancelRequest(int account, int token, boolean notifyServer) {
+        cancelRequest(account, token, notifyServer, null);
+    }
+
+    public static void cancelRequest(int account, int token, boolean notifyServer, Runnable callback) {
+        HttpURLConnection[] handle = HTTP_REQUESTS.remove(token);
+        if (handle == null) {
+            ConnectionsManager.getInstance(account).cancelRequest(token, notifyServer, callback);
+            return;
+        }
+        if (handle[0] != null) handle[0].disconnect();
+        if (callback != null) Utilities.stageQueue.postRunnable(callback);
+    }
+
+    public static void failNotRunningRequest(int account, int token) {
+        if (token < 0) {
+            cancelRequest(account, token, true);
+        } else {
+            ConnectionsManager.getInstance(account).failNotRunningRequest(token);
+        }
+    }
+
+    public static void report(String fileName, String transport, String reason) {
+        FileLog.d("crossgram_download_transport=" + transport + " file=" + fileName + " reason=" + reason);
+    }
+
+    private static final class GetFileUrl extends TLObject {
+        TLRPC.InputFileLocation location;
+
+        @Override
+        public TLObject deserializeResponse(InputSerializedData stream, int constructor, boolean exception) {
+            return TLRPC.TL_dataJSON.TLdeserialize(stream, constructor, exception);
+        }
+
+        @Override
+        public void serializeToStream(OutputSerializedData stream) {
+            stream.writeInt32(GET_FILE_URL_CONSTRUCTOR);
+            location.serializeToStream(stream);
+        }
+    }
+}
