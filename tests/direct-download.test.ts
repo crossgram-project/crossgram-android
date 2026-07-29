@@ -116,6 +116,8 @@ describe("Android direct-download patch", () => {
     );
     expect(patched).toContain('label = "直连";');
     expect(patched).toContain('label = "中转";');
+    expect(patched).toContain("documentAttachType == DOCUMENT_ATTACH_TYPE_DOCUMENT && !drawPhotoImage");
+    expect(patched).toContain("statusLayout.getLineWidth(0)");
     expect(patched).toContain("drawCrossgramTransportBadge(canvas);");
     expect(patched).toContain('FileLog.d("crossgram_transport_badge=" + transport');
     expect(patchChatMessageCell(patched)).toBe(patched);
@@ -128,6 +130,20 @@ describe("Android direct-download patch", () => {
 
     expect(migrated).not.toMatch(/\bObject parentObject/);
     expect(migrated.match(/TLObject parentObject/g)).toHaveLength(3);
+  });
+
+  it("migrates the transport badge from below a file icon into its status row", () => {
+    const previous = patchChatMessageCell(messageCellFixture).replace(
+      /        float height;\n        float centerX;\n        if \(documentAttachType[\s\S]*?^        }\n(?=        canvas\.drawRoundRect)/m,
+      `        float height = dp(20);
+        float centerX = progressRect.centerX();
+        float top = progressRect.bottom + dp(5);
+        AndroidUtilities.rectTmp.set(centerX - width / 2f, top, centerX + width / 2f, top + height);\n`,
+    );
+    const migrated = patchChatMessageCell(previous);
+
+    expect(migrated).toContain("documentAttachType == DOCUMENT_ATTACH_TYPE_DOCUMENT && !drawPhotoImage");
+    expect(migrated).not.toContain("float top = progressRect.bottom + dp(5);\n        AndroidUtilities.rectTmp.set");
   });
 
   it("keeps the RPC constructor and transport diagnostic marker stable", async () => {

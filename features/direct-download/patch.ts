@@ -199,6 +199,37 @@ export function patchChatMessageCell(initial: string): string {
     source = source.replaceAll(originalThumb, strippedThumb);
   }
 
+  const legacyTransportBadgePlacement = `        float height = dp(20);
+        float centerX = progressRect.centerX();
+        float top = progressRect.bottom + dp(5);
+        AndroidUtilities.rectTmp.set(centerX - width / 2f, top, centerX + width / 2f, top + height);`;
+  const transportBadgePlacement = `        float height;
+        float centerX;
+        if (documentAttachType == DOCUMENT_ATTACH_TYPE_DOCUMENT && !drawPhotoImage) {
+            height = dp(18);
+            StaticLayout statusLayout = buttonState == 1 && loadingProgressLayout != null
+                    ? loadingProgressLayout : infoLayout;
+            float statusWidth = statusLayout != null && statusLayout.getLineCount() > 0
+                    ? statusLayout.getLineWidth(0) : 0;
+            float left = buttonX + dp(53) + statusWidth + dp(6);
+            float maxRight = buttonX + backgroundWidth
+                    - dp(currentMessageObject.type == MessageObject.TYPE_TEXT ? 60 : 50)
+                    - dp(hasLinkPreview ? 24 : 0);
+            left = Math.min(left, maxRight - width);
+            float top = buttonY + dp(24);
+            if (docTitleLayout != null && docTitleLayout.getLineCount() > 1) {
+                top += (docTitleLayout.getLineCount() - 1) * dp(16) + dp(2);
+            }
+            AndroidUtilities.rectTmp.set(left, top, left + width, top + height);
+            centerX = AndroidUtilities.rectTmp.centerX();
+        } else {
+            height = dp(20);
+            centerX = progressRect.centerX();
+            float top = progressRect.bottom + dp(5);
+            AndroidUtilities.rectTmp.set(centerX - width / 2f, top, centerX + width / 2f, top + height);
+        }`;
+  source = source.replace(legacyTransportBadgePlacement, transportBadgePlacement);
+
   source = replaceRegexOnce(
     source,
     /(?=^[ \t]*private Paint clipPaint;[ \t]*$)/m,
@@ -264,10 +295,7 @@ export function patchChatMessageCell(initial: string): string {
         crossgramTransportBackgroundPaint.setColor(backgroundColor);
         RectF progressRect = radialProgress.getProgressRect();
         float width = crossgramTransportTextPaint.measureText(label) + dp(12);
-        float height = dp(20);
-        float centerX = progressRect.centerX();
-        float top = progressRect.bottom + dp(5);
-        AndroidUtilities.rectTmp.set(centerX - width / 2f, top, centerX + width / 2f, top + height);
+${transportBadgePlacement}
         canvas.drawRoundRect(AndroidUtilities.rectTmp, height / 2f, height / 2f, crossgramTransportBackgroundPaint);
         Paint.FontMetrics metrics = crossgramTransportTextPaint.getFontMetrics();
         float baseline = AndroidUtilities.rectTmp.centerY() - (metrics.ascent + metrics.descent) / 2f;
