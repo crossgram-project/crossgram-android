@@ -134,12 +134,28 @@
         if ("send".equals(command)) {
             long peerId = intent.getLongExtra("crossgram_e2e_peer_id", 0);
             String peerType = intent.getStringExtra("crossgram_e2e_peer_type");
+            boolean expectSendError = intent.getBooleanExtra("crossgram_e2e_expect_send_error", false);
             String encodedMessage = intent.getStringExtra("crossgram_e2e_message_base64");
             String message = encodedMessage == null
                     ? intent.getStringExtra("crossgram_e2e_message")
                     : new String(android.util.Base64.decode(encodedMessage, android.util.Base64.DEFAULT),
                             java.nio.charset.StandardCharsets.UTF_8);
             long dialogId = "user".equals(peerType) ? peerId : -peerId;
+            if (expectSendError) {
+                NotificationCenter.NotificationCenterDelegate observer = new NotificationCenter.NotificationCenterDelegate() {
+                    @Override
+                    public void didReceivedNotification(int id, int account, Object... args) {
+                        if (id != NotificationCenter.messageSendError) {
+                            return;
+                        }
+                        NotificationCenter.getInstance(currentAccount).removeObserver(
+                                this, NotificationCenter.messageSendError);
+                        android.util.Log.i("CrossgramE2E", "send_error local_id=" + args[0]);
+                    }
+                };
+                NotificationCenter.getInstance(currentAccount).addObserver(
+                        observer, NotificationCenter.messageSendError);
+            }
             SendMessagesHelper.getInstance(currentAccount).sendMessage(
                     SendMessagesHelper.SendMessageParams.of(message, dialogId, null, null, null,
                             false, null, null, null, true, 0, 0, null, false));
