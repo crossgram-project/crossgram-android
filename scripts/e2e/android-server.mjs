@@ -73,6 +73,41 @@ async function waitFor(marker, timeoutMs = 45_000) {
   throw new Error(`Timed out waiting for Android marker: ${marker}\n${logs()}`);
 }
 
+async function waitForOutcome(successMarker, failureMarker, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const output = logs();
+    if (output.includes(failureMarker)) {
+      const line = output.split(/\r?\n/).findLast((entry) => entry.includes(failureMarker));
+      throw new Error(`Android reported failure: ${line ?? failureMarker}`);
+    }
+    if (output.includes(successMarker)) return output;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Timed out waiting for Android marker: ${successMarker}\n${logs()}`);
+}
+
+function markerFields(output, marker) {
+  const line = output.split(/\r?\n/).findLast((entry) => entry.includes(marker));
+  if (!line) throw new Error(`Android marker disappeared: ${marker}`);
+  return Object.fromEntries([...line.matchAll(/([a-z_]+)=([^ ]+)/g)].map((match) => [match[1], match[2]]));
+}
+
+function booleanOption(name, fallback = false) {
+  const value = option(name);
+  if (value === undefined) return fallback;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`--${name} must be true or false`);
+}
+
+function historyLoadType(value, source, maxId) {
+  const selected = value === "auto" ? (source === "server" && maxId === 0 ? "initial" : "backward") : value;
+  const types = { backward: 0, forward: 1, initial: 2, around: 3, date: 4 };
+  if (!(selected in types)) throw new Error("--load-type must be auto, initial, backward, forward, around or date");
+  return types[selected];
+}
+
 async function waitForRelayMessage(relayRoot, message, timeoutMs = 45_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -163,16 +198,37 @@ async function main() {
     const count = Number(option("count", "50"));
     const maxId = Number(option("max-id", "0"));
     const source = option("source", "server");
+    const cold = booleanOption("cold");
+    const rawPeer = booleanOption("raw-peer");
+    const loadType = historyLoadType(option("load-type", "auto"), source, maxId);
+    const minCount = Number(option("min-count", String(count)));
     if (source !== "server" && source !== "cache") throw new Error("--source must be server or cache");
-    await dispatch(launchComponent, e2eAction, "history", [
+    if (cold) adb(["shell", "am", "force-stop", packageName]);
+    const historyComponent = cold ? dispatcherComponent : launchComponent;
+    const historyAction = cold ? undefined : e2eAction;
+    await dispatch(historyComponent, historyAction, "history", [
       ["--es", "crossgram_e2e_peer_type", peerType],
       ["--el", "crossgram_e2e_peer_id", peerId],
       ["--ei", "crossgram_e2e_history_count", count],
       ["--ei", "crossgram_e2e_history_max_id", maxId],
       ["--ez", "crossgram_e2e_history_cache", source === "cache"],
+      ["--ez", "crossgram_e2e_history_raw_peer", rawPeer],
+      ["--ei", "crossgram_e2e_history_load_type", loadType],
     ]);
-    await waitFor(`function_called:loadMessages source=${source}`);
-    await waitFor(`history_loaded source=${source}`);
+    await waitForOutcome(`function_called:loadMessages source=${source}`, "history_failed");
+    const output = await waitForOutcome(`history_loaded source=${source}`, "history_failed");
+    const fields = markerFields(output, `history_loaded source=${source}`);
+    const loadedCount = Number(fields.count);
+    const uniqueCount = Number(fields.unique_count);
+    if (loadedCount < minCount) throw new Error(`Android history returned ${loadedCount}, expected at least ${minCount}`);
+    if (fields.ordered_desc !== "true") throw new Error("Android history IDs are not in descending Telegram order");
+    if (uniqueCount !== loadedCount) throw new Error(`Android history has duplicate/non-positive IDs: count=${loadedCount}, unique=${uniqueCount}`);
+    if (maxId > 0 && Number(fields.max_id) > maxId) {
+      throw new Error(`Android pagination returned messages newer than its anchor: max_id=${fields.max_id}, requested=${maxId}`);
+    }
+    if (maxId > 0 && Number(fields.min_id) >= maxId) {
+      throw new Error(`Android pagination did not advance past its anchor: min_id=${fields.min_id}, requested=${maxId}`);
+    }
   }
 
   if (command === "chat" || command === "send" || command === "all") {

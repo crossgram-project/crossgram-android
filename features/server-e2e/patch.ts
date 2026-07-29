@@ -53,34 +53,69 @@ export function patchLoginE2eSource(initial: string, file: string, methods: stri
 }
 
 export function patchLaunchE2eSource(initial: string, file: string, method: string): string {
-  const historyBranch = method.match(
-    /        if \("history"\.equals\(command\)\) \{[\s\S]*?(?=        if \("send"\.equals\(command\)\) \{)/,
-  )?.[0];
-  if (!historyBranch) throw new Error("server E2E launch template has no history branch");
-  let source = replaceRegexOnce(
-    initial,
-    /(?=^[ \t]*private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword\)\s*\{)/m,
-    `\n${method.trimEnd()}\n\n`,
-    "boolean handleCrossgramE2eIntent(Intent intent)",
-    file,
-    "add direct page and function dispatcher",
+  const helperMarker = "private boolean runCrossgramE2eHistory(Intent intent, int hydrationAttempt)";
+  const helperOffset = method.indexOf(`    ${helperMarker}`);
+  if (helperOffset < 0) throw new Error("server E2E launch template has no history helper");
+  const historyHelper = method.slice(helperOffset).trimEnd();
+  let templateBody = "";
+  editDeclarationBody(
+    method,
+    /private\s+boolean\s+handleCrossgramE2eIntent\s*\(/,
+    "launch-method.java",
+    "handleCrossgramE2eIntent template",
+    (body) => {
+      templateBody = body;
+      return body;
+    },
   );
-  source = replaceRegexOnce(
-    source,
-    /[ \t]*String message = intent\.getStringExtra\("crossgram_e2e_message"\);/,
-    `            String encodedMessage = intent.getStringExtra("crossgram_e2e_message_base64");\n            String message = encodedMessage == null\n                    ? intent.getStringExtra("crossgram_e2e_message")\n                    : new String(android.util.Base64.decode(encodedMessage, android.util.Base64.DEFAULT),\n                            java.nio.charset.StandardCharsets.UTF_8);`,
-    "crossgram_e2e_message_base64",
-    file,
-    "encode adb text message extras safely",
-  );
-  source = replaceRegexOnce(
-    source,
-    /(?=        if \("send"\.equals\(command\)\) \{)/,
-    `${historyBranch}\n`,
-    "history_loaded source=",
-    file,
-    "add direct history loading probe",
-  );
+  let source = initial;
+  if (source.includes("boolean handleCrossgramE2eIntent(Intent intent)")) {
+    source = editDeclarationBody(
+      source,
+      /private\s+boolean\s+handleCrossgramE2eIntent\s*\(/,
+      file,
+      "LaunchActivity.handleCrossgramE2eIntent",
+      () => templateBody,
+    );
+  } else {
+    source = replaceRegexOnce(
+      source,
+      /(?=^[ \t]*private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword\)\s*\{)/m,
+      `\n${method.trimEnd()}\n\n`,
+      "boolean handleCrossgramE2eIntent(Intent intent)",
+      file,
+      "add direct page and function dispatcher",
+    );
+  }
+  if (!source.includes(helperMarker)) {
+    source = replaceRegexOnce(
+      source,
+      /(?=^[ \t]*private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword\)\s*\{)/m,
+      `\n${historyHelper}\n\n`,
+      helperMarker,
+      file,
+      "add direct history helper",
+    );
+  } else {
+    let helperBody = "";
+    editDeclarationBody(
+      historyHelper,
+      /private\s+boolean\s+runCrossgramE2eHistory\s*\(/,
+      "launch-method.java",
+      "runCrossgramE2eHistory template",
+      (body) => {
+        helperBody = body;
+        return body;
+      },
+    );
+    source = editDeclarationBody(
+      source,
+      /private\s+boolean\s+runCrossgramE2eHistory\s*\(/,
+      file,
+      "LaunchActivity.runCrossgramE2eHistory",
+      () => helperBody,
+    );
+  }
   source = editDeclarationBody(
     source,
     /private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword, Browser\.Progress progress, boolean rebuildFragments, boolean openedTelegram\)\s*\{/,
