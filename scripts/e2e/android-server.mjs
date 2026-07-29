@@ -237,8 +237,12 @@ async function main() {
     const cold = booleanOption("cold");
     const rawPeer = booleanOption("raw-peer");
     const loadType = historyLoadType(option("load-type", "auto"), source, maxId);
+    const requireBothSides = booleanOption("require-both-sides");
     const minCount = Number(option("min-count", String(count)));
     if (source !== "server" && source !== "cache") throw new Error("--source must be server or cache");
+    if (requireBothSides && (maxId <= 0 || loadType !== 3)) {
+      throw new Error("--require-both-sides requires --load-type around and a positive --max-id");
+    }
     if (cold) adb(["shell", "am", "force-stop", packageName]);
     const historyComponent = cold ? dispatcherComponent : launchComponent;
     const historyAction = cold ? undefined : e2eAction;
@@ -259,11 +263,17 @@ async function main() {
     if (loadedCount < minCount) throw new Error(`Android history returned ${loadedCount}, expected at least ${minCount}`);
     if (fields.ordered_desc !== "true") throw new Error("Android history IDs are not in descending Telegram order");
     if (uniqueCount !== loadedCount) throw new Error(`Android history has duplicate/non-positive IDs: count=${loadedCount}, unique=${uniqueCount}`);
-    if (maxId > 0 && Number(fields.max_id) > maxId) {
-      throw new Error(`Android pagination returned messages newer than its anchor: max_id=${fields.max_id}, requested=${maxId}`);
+    if (maxId > 0 && loadType === 0) {
+      if (Number(fields.max_id) > maxId) {
+        throw new Error(`Android backward pagination returned messages newer than its anchor: max_id=${fields.max_id}, requested=${maxId}`);
+      }
+      if (Number(fields.min_id) >= maxId) {
+        throw new Error(`Android backward pagination did not advance past its anchor: min_id=${fields.min_id}, requested=${maxId}`);
+      }
     }
-    if (maxId > 0 && Number(fields.min_id) >= maxId) {
-      throw new Error(`Android pagination did not advance past its anchor: min_id=${fields.min_id}, requested=${maxId}`);
+    if (requireBothSides
+      && !(Number(fields.min_id) < maxId && Number(fields.max_id) > maxId)) {
+      throw new Error(`Android around window did not span its anchor: min_id=${fields.min_id}, max_id=${fields.max_id}, requested=${maxId}`);
     }
   }
 

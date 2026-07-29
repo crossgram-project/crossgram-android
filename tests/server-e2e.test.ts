@@ -170,8 +170,10 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('waitForOutcome(`history_loaded source=${source}`, "history_failed")');
     expect(runner).toContain('if (cold) adb(["shell", "am", "force-stop", packageName])');
     expect(runner).toContain("Android history IDs are not in descending Telegram order");
-    expect(runner).toContain("Android pagination returned messages newer than its anchor");
-    expect(runner).toContain("Android pagination did not advance past its anchor");
+    expect(runner).toContain("Android backward pagination returned messages newer than its anchor");
+    expect(runner).toContain("Android backward pagination did not advance past its anchor");
+    expect(runner).toContain('const requireBothSides = booleanOption("require-both-sides")');
+    expect(runner).toContain("Android around window did not span its anchor");
   });
 
   it("ships a read-only Android history cache inspector", async () => {

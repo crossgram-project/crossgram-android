@@ -134,6 +134,16 @@ reply metadata、reaction、草稿、转发、编辑 replacement 与删除 tombs
 `MessagesController.loadMessages`，marker 会给出 cache/server、实际数量、首尾 ID、
 `end` 与耗时。
 
+要验证跳转/未读窗口确实覆盖锚点两侧，使用：
+
+```bash
+yarn e2e:android-server --command history --conversation 479613101 --source server \
+  --count 50 --max-id <deep-anchor-tl-id> --load-type around --require-both-sides true
+```
+
+runner 会同时要求 `min_id < anchor < max_id`。这个断言与向后分页不同；只有
+`LOAD_BACKWARD` 才拒绝所有比 anchor 更新的消息。
+
 服务器首屏默认使用 Android 的 `LOAD_FROM_UNREAD`；缓存读取和带 `--max-id` 的分页使用
 `LOAD_BACKWARD`。可用 `--load-type` 明确覆盖，或用 `--raw-peer true` 跳过元数据补水，
 复现错误 peer 构造。`--cold true` 会先 force-stop app，再由 launcher intent 启动真实
