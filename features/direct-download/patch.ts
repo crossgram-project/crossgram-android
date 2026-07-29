@@ -196,20 +196,20 @@ export function patchChatMessageCell(initial: string): string {
     private String crossgramLastDrawnTransport;
     private String crossgramLastDrawnTransportFile;
 
-    private boolean useCrossgramStrippedLoadingThumb(Object parentObject) {
+    private boolean useCrossgramStrippedLoadingThumb(TLObject parentObject) {
         return currentMessageObject != null
                 && !currentMessageObject.mediaExists
                 && currentPhotoObjectThumbStripped != null
                 && CrossgramDirectDownload.supports(parentObject);
     }
 
-    private ImageLocation getCrossgramLoadingThumbLocation(Object parentObject) {
+    private ImageLocation getCrossgramLoadingThumbLocation(TLObject parentObject) {
         return useCrossgramStrippedLoadingThumb(parentObject)
                 ? null
                 : ImageLocation.getForObject(currentPhotoObjectThumb, parentObject);
     }
 
-    private String getCrossgramLoadingThumbFilter(Object parentObject) {
+    private String getCrossgramLoadingThumbFilter(TLObject parentObject) {
         return useCrossgramStrippedLoadingThumb(parentObject) ? null : currentPhotoFilterThumb;
     }
 
