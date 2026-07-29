@@ -59,4 +59,15 @@ describe("Android server E2E source driver", () => {
     expect(activity).toContain("if (!BuildConfig.DEBUG)");
     expect(activity).not.toContain("crossgram_e2e_code\"");
   });
+
+  it("sends follow-up commands straight to the running LaunchActivity", async () => {
+    const runner = await readFile(path.resolve("scripts/e2e/android-server.mjs"), "utf8");
+
+    expect(runner).toContain('const launchComponent = `${packageName}/org.telegram.ui.LaunchActivity`;');
+    expect(runner).toContain('const e2eAction = "org.telegram.messenger.CROSSGRAM_E2E";');
+    expect(runner).toContain('if (action) args.push("-a", action);');
+    expect(runner).toContain('dispatch(launchComponent, e2eAction, "state")');
+    expect(runner).not.toContain('dispatch(component, "state")');
+    expect(runner).toContain('if (command === "state")');
+  });
 });
