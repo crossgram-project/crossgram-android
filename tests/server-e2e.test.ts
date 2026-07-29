@@ -47,6 +47,9 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("new ChatActivity(args)");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendMessage");
     expect(patched).toContain("crossgram_e2e_message_base64");
+    expect(patched).toContain("MessagesController.getInstance(currentAccount).loadMessages");
+    expect(patched).toContain("NotificationCenter.messagesDidLoad");
+    expect(patched).toContain('"history_loaded source="');
     expect(patched).toContain('android.util.Log.i("CrossgramE2E", "state activated="');
     expect(patched).toContain("if (handleCrossgramE2eIntent(intent))");
     expect(patchLaunchE2eSource(patched, "LaunchActivity.java", method)).toBe(patched);
@@ -104,7 +107,9 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('if (command === "state")');
     expect(runner).toContain('Buffer.from(message).toString("base64")');
     expect(runner).toContain("waitForRelayMessage(relayRoot, message)");
-    expect(runner).toContain('if (!explicitPeerId && peerType === "user")');
+    expect(runner).toContain('if (peerType !== "user") return stableId(`peer:${conversation}`)');
     expect(runner).toContain('throw new Error("--message is required for send")');
+    expect(runner).toContain('if (command === "history")');
+    expect(runner).toContain('await waitFor(`history_loaded source=${source}`)');
   });
 });

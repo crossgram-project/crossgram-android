@@ -77,7 +77,14 @@ yarn e2e:android-server --command login
 yarn e2e:android-server --command state
 yarn e2e:android-server --command dialogs
 yarn e2e:android-server --command chat --conversation 479613101
+yarn e2e:android-server --command history --conversation 479613101 --source server --count 50
+yarn e2e:android-server --command history --conversation 479613101 --source cache --count 50
 ```
+
+分页时把上一页 `history_loaded` 的 `min_id` 作为下一次的 `--max-id`。该命令不会打开或
+滚动 UI，而是在 Android 进程内注册 `NotificationCenter.messagesDidLoad` 后直接调用
+`MessagesController.loadMessages`，marker 会给出 cache/server、实际数量、首尾 ID、
+`end` 与耗时。
 
 私聊发送使用 relay 的原生 platform user id，runner 会通过只读数据库自动解析其
 Telegram user id：
