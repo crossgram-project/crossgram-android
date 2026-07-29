@@ -120,6 +120,15 @@ describe("Android direct-download patch", () => {
     expect(patchChatMessageCell(patched)).toBe(patched);
   });
 
+  it("migrates the initial loading helper to the upstream TLObject signature", () => {
+    const previous = patchChatMessageCell(messageCellFixture)
+      .replaceAll("TLObject parentObject", "Object parentObject");
+    const migrated = patchChatMessageCell(previous);
+
+    expect(migrated).not.toContain("Object parentObject");
+    expect(migrated.match(/TLObject parentObject/g)).toHaveLength(3);
+  });
+
   it("keeps the RPC constructor and transport diagnostic marker stable", async () => {
     const runtime = await readFile(path.resolve(
       "features/direct-download/files/java/org/telegram/messenger/crossgram_direct/CrossgramDirectDownload.java",

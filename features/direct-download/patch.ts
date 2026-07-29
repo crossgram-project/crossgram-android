@@ -177,6 +177,13 @@ export function patchChatMessageCell(initial: string): string {
     "org.telegram.messenger.crossgram_direct.CrossgramDirectDownload",
     messageCellFile,
   );
+  source = source
+    .replace("useCrossgramStrippedLoadingThumb(Object parentObject)",
+      "useCrossgramStrippedLoadingThumb(TLObject parentObject)")
+    .replace("getCrossgramLoadingThumbLocation(Object parentObject)",
+      "getCrossgramLoadingThumbLocation(TLObject parentObject)")
+    .replace("getCrossgramLoadingThumbFilter(Object parentObject)",
+      "getCrossgramLoadingThumbFilter(TLObject parentObject)");
 
   const originalThumb = "ImageLocation.getForObject(currentPhotoObjectThumb, photoParentObject), currentPhotoFilterThumb, currentPhotoObjectThumbStripped, currentPhotoObject.size";
   const strippedThumb = "getCrossgramLoadingThumbLocation(photoParentObject), getCrossgramLoadingThumbFilter(photoParentObject), currentPhotoObjectThumbStripped, currentPhotoObject.size";
