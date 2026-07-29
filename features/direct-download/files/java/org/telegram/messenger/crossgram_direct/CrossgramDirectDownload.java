@@ -50,6 +50,14 @@ public final class CrossgramDirectDownload {
                 && !(location instanceof TLRPC.TL_inputPhotoFileLocation)) {
             return false;
         }
+        // The relay's generated `m` preview is stored locally and has no QQ CDN URL.
+        // Older relays returned the original image URL here, which produced a valid
+        // file header followed by a truncated image when Android requested the
+        // advertised preview size. Keep previews on upload.getFile on every version.
+        if (location instanceof TLRPC.TL_inputPhotoFileLocation
+                && "m".equals(location.thumb_size)) {
+            return false;
+        }
         return supportsFileReference(location.file_reference);
     }
 

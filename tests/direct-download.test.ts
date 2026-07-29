@@ -138,6 +138,7 @@ describe("Android direct-download patch", () => {
     expect(runtime).toContain('"crossgram_download_transport=" + transport');
     expect(runtime).toContain("REPORTED_TRANSPORTS");
     expect(runtime).toContain("supports(Object parentObject)");
+    expect(runtime).toContain('"m".equals(location.thumb_size)');
   });
 
   it("migrates an already-patched direct download buffer to a readable position", () => {
