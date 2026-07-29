@@ -97,6 +97,7 @@ describe("Android direct-download patch", () => {
     expect(patched).toContain("CrossgramDirectDownload.resolve(currentAccount, datacenterId, location");
     expect(patched).toContain("CrossgramDirectDownload.begin(fileName);");
     expect(patched).toContain("CrossgramDirectDownload.loadRange(");
+    expect(patched).toContain("clearOperation(requestInfo, false, false);");
     expect(patched).toContain("buffer.position(0);");
     expect(patched).toContain("request = null;");
     expect(patched).toContain("crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_RELAY;");
@@ -159,6 +160,22 @@ describe("Android direct-download patch", () => {
     expect(patchFileLoadOperation(previous)).toContain(
       "crossgramDirectResolving = true;\n                CrossgramDirectDownload.begin(fileName);",
     );
+  });
+
+  it("migrates per-chunk fallback to an atomic operation reset", () => {
+    const current = patchFileLoadOperation(fixture);
+    const previous = current.replace(
+      "                        clearOperation(requestInfo, false, false);",
+      `                        requestInfos.remove(requestInfo);
+                        AndroidUtilities.runOnUIThread(() -> uiRequestTokens.remove((Integer) requestInfo.requestToken));
+                        requestedBytesCount -= requestInfo.chunkSize;
+                        requestsCount--;
+                        removePart(notRequestedBytesRanges, requestInfo.offset, requestInfo.offset + requestInfo.chunkSize);`,
+    );
+
+    const migrated = patchFileLoadOperation(previous);
+    expect(migrated).toContain("clearOperation(requestInfo, false, false);");
+    expect(migrated).not.toContain("requestedBytesCount -= requestInfo.chunkSize;");
   });
 
   it("installs both Java runtime files from the packaged template tree", async () => {

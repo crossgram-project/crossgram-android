@@ -90,11 +90,7 @@ $1`,
                         crossgramDirectUrl, requestInfo.offset, requestInfo.chunkSize, (bytes, directError) -> {
                     if (requestInfo.cancelled || state != stateDownloading) return;
                     if (directError != null || bytes == null || bytes.length == 0) {
-                        requestInfos.remove(requestInfo);
-                        AndroidUtilities.runOnUIThread(() -> uiRequestTokens.remove((Integer) requestInfo.requestToken));
-                        requestedBytesCount -= requestInfo.chunkSize;
-                        requestsCount--;
-                        removePart(notRequestedBytesRanges, requestInfo.offset, requestInfo.offset + requestInfo.chunkSize);
+                        clearOperation(requestInfo, false, false);
                         crossgramDirectDisabled = true;
                         crossgramDirectUrl = null;
                         crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_RELAY;
@@ -137,6 +133,14 @@ $1`,
     "CrossgramDirectDownload.begin(fileName);",
     operationFile,
     "expose URL resolution to the transport indicator",
+  );
+  source = source.replace(
+    `                        requestInfos.remove(requestInfo);
+                        AndroidUtilities.runOnUIThread(() -> uiRequestTokens.remove((Integer) requestInfo.requestToken));
+                        requestedBytesCount -= requestInfo.chunkSize;
+                        requestsCount--;
+                        removePart(notRequestedBytesRanges, requestInfo.offset, requestInfo.offset + requestInfo.chunkSize);`,
+    "                        clearOperation(requestInfo, false, false);",
   );
   source = replaceRegexOnce(
     source,
