@@ -60,6 +60,7 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("loader.loadFile(document, target");
     expect(patched).toContain("download_loaded");
     expect(patched).toContain('chatArgs.putInt("message_id", target.getId())');
+    expect(patched).toContain("new ChatActivity(chatArgs), true, false, true, false");
     expect(patched).toContain("download_ui_opened");
     expect(patched).toContain("crossgram_e2e_message_base64");
     expect(patched).toContain("messagesController.loadMessages");

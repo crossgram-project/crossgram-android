@@ -414,7 +414,8 @@
                     chatArgs.putLong("chat_id", -dialogId);
                 }
                 chatArgs.putInt("message_id", target.getId());
-                presentFragment(new ChatActivity(chatArgs));
+                getActionBarLayout().presentFragment(
+                        new ChatActivity(chatArgs), true, false, true, false);
                 android.util.Log.i("CrossgramE2E", "download_ui_opened"
                         + " media_id=" + expectedMediaId
                         + " target_id=" + target.getId());
