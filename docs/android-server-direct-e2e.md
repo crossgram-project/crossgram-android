@@ -66,6 +66,10 @@ yarn prepare-build --client nagram --source /path/to/Nagram --variant x86_64
 
 连续执行两次 `yarn e2e:source`，第二次必须报告 `changedFiles: []`。
 
+CI 不读取生产签名。构建脚本用 `mktemp` 和 `keytool` 生成有效期一天的临时 E2E
+keystore，通过 `KEYSTORE_PASS`、`ALIAS_NAME`、`ALIAS_PASS` 只传给当前 Gradle 进程，并在
+退出时删除。
+
 `NAGRAM_BUILD_ARGS=skip_buildCMakeDebug` 只能用于本机已有匹配 E2E native 产物的增量
 构建；新 checkout 或尚未编译过 `jni.c` 放行逻辑的源码必须重编 native。
 
