@@ -33,7 +33,11 @@
         if ("send".equals(command)) {
             long peerId = intent.getLongExtra("crossgram_e2e_peer_id", 0);
             String peerType = intent.getStringExtra("crossgram_e2e_peer_type");
-            String message = intent.getStringExtra("crossgram_e2e_message");
+            String encodedMessage = intent.getStringExtra("crossgram_e2e_message_base64");
+            String message = encodedMessage == null
+                    ? intent.getStringExtra("crossgram_e2e_message")
+                    : new String(android.util.Base64.decode(encodedMessage, android.util.Base64.DEFAULT),
+                            java.nio.charset.StandardCharsets.UTF_8);
             long dialogId = "user".equals(peerType) ? peerId : -peerId;
             SendMessagesHelper.getInstance(currentAccount).sendMessage(
                     SendMessagesHelper.SendMessageParams.of(message, dialogId, null, null, null,
