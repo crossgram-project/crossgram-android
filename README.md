@@ -1,13 +1,4 @@
-# Crossgram Android direct-function E2E patcher
-
-本仓库用于把只存在于 Android 进程内的页面与业务函数暴露给 adb 驱动，以真实
-Crossgram relay/QQNT 服务器做端到端测试。它会注入 debug-only Activity、直接调用
-`LoginActivity`、`DialogsActivity`、`ChatActivity`、`SendMessagesHelper` 等真实代码，
-并自动重编 Nagram 调试 APK。详细方法、命令与验收口径见
-[Android 服务器直接函数 E2E](docs/android-server-direct-e2e.md)。
-
-> 这是测试构建工具，不是面向用户发布的客户端。E2E patch 会在 native 层放行测试
-> 签名，且导出一个仅 debug manifest 可见的 adb Activity；不要分发生成的 APK。
+# Crossgram Android patcher
 
 [![一键构建并发布](https://img.shields.io/badge/GitHub_Actions-一键构建并发布-2088FF?logo=githubactions&logoColor=white)](https://github.com/crossgram-project/crossgram-android/actions/workflows/release.yml)
 
@@ -18,6 +9,12 @@ Crossgram 在 Telegram Android 及其第三方客户端源码上语义地注入�
 请求失败时自动回退到原有 `upload.getFile` relay 下载。每个下载操作通过
 `getCrossgramDownloadTransport()` 暴露 `direct` / `relay` 状态，日志使用
 `crossgram_download_transport=<direct|relay>` 标记。
+
+`features/server-e2e` 是默认关闭的测试 feature。只有显式运行
+`yarn e2e:source` 或 Android E2E workflow 时才会注入 debug Activity、测试签名放行和
+直接业务函数入口；常规 `patch:source` 与 release workflow 不会应用它。详细方法、命令与
+验收口径见 [Android 服务器直接函数 E2E](docs/android-server-direct-e2e.md)。E2E APK 只供
+受控 AVD 使用，不应安装到生产设备或对外分发。
 
 ## 已支持的上游
 

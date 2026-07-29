@@ -111,6 +111,22 @@ describe("Android server E2E source driver", () => {
     expect(activity).not.toContain("crossgram_e2e_code\"");
   });
 
+  it("keeps the server E2E feature out of the default production patch command", async () => {
+    const cli = await readFile(path.resolve("src/cli.ts"), "utf8");
+    const productionPatch = cli.slice(
+      cli.indexOf('if (command === "patch")'),
+      cli.indexOf('} else if (command === "e2e")'),
+    );
+    const e2ePatch = cli.slice(
+      cli.indexOf('} else if (command === "e2e")'),
+      cli.indexOf('} else if (command === "discover")'),
+    );
+
+    expect(productionPatch).toContain("applyServerSwitch(root, upstream)");
+    expect(productionPatch).not.toContain("applyServerE2e");
+    expect(e2ePatch).toContain("applyServerE2e(root)");
+  });
+
   it("allows only the dedicated E2E patch to use an ephemeral debug signature", () => {
     const source = `jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     if (verifySign(env) != JNI_OK) {
