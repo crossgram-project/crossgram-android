@@ -53,6 +53,10 @@ export function patchLoginE2eSource(initial: string, file: string, methods: stri
 }
 
 export function patchLaunchE2eSource(initial: string, file: string, method: string): string {
+  const historyBranch = method.match(
+    /        if \("history"\.equals\(command\)\) \{[\s\S]*?(?=        if \("send"\.equals\(command\)\) \{)/,
+  )?.[0];
+  if (!historyBranch) throw new Error("server E2E launch template has no history branch");
   let source = replaceRegexOnce(
     initial,
     /(?=^[ \t]*private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword\)\s*\{)/m,
@@ -68,6 +72,14 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
     "crossgram_e2e_message_base64",
     file,
     "encode adb text message extras safely",
+  );
+  source = replaceRegexOnce(
+    source,
+    /(?=        if \("send"\.equals\(command\)\) \{)/,
+    `${historyBranch}\n`,
+    "history_loaded source=",
+    file,
+    "add direct history loading probe",
   );
   source = editDeclarationBody(
     source,

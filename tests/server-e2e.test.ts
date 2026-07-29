@@ -57,14 +57,20 @@ describe("Android server E2E source driver", () => {
 
   it("upgrades an already-installed driver to Base64-safe text extras", async () => {
     const method = await readFile(path.join(featureRoot, "java-snippets/launch-method.java"), "utf8");
-    const legacyMethod = method.replace(
-      /            String encodedMessage[\s\S]*?java\.nio\.charset\.StandardCharsets\.UTF_8\);/,
-      '            String message = intent.getStringExtra("crossgram_e2e_message");',
-    );
+    const legacyMethod = method
+      .replace(
+        /            String encodedMessage[\s\S]*?java\.nio\.charset\.StandardCharsets\.UTF_8\);/,
+        '            String message = intent.getStringExtra("crossgram_e2e_message");',
+      )
+      .replace(
+        /        if \("history"\.equals\(command\)\) \{[\s\S]*?(?=        if \("send"\.equals\(command\)\) \{)/,
+        "",
+      );
     const source = `public class LaunchActivity {\n${legacyMethod}\n\n    private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword) { return false; }\n    private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword, Browser.Progress progress, boolean rebuildFragments, boolean openedTelegram) { return false; }\n}`;
 
     const patched = patchLaunchE2eSource(source, "LaunchActivity.java", method);
     expect(patched).toContain("crossgram_e2e_message_base64");
+    expect(patched).toContain("history_loaded source=");
     expect(patched).not.toContain('String message = intent.getStringExtra("crossgram_e2e_message");');
     expect(patchLaunchE2eSource(patched, "LaunchActivity.java", method)).toBe(patched);
   });
