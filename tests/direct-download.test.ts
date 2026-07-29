@@ -125,7 +125,7 @@ describe("Android direct-download patch", () => {
       .replaceAll("TLObject parentObject", "Object parentObject");
     const migrated = patchChatMessageCell(previous);
 
-    expect(migrated).not.toContain("Object parentObject");
+    expect(migrated).not.toMatch(/\bObject parentObject/);
     expect(migrated.match(/TLObject parentObject/g)).toHaveLength(3);
   });
 
