@@ -1,0 +1,62 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { patchLaunchE2eSource, patchLoginE2eSource } from "../features/server-e2e/patch.js";
+
+const featureRoot = path.resolve("features/server-e2e/files");
+
+describe("Android server E2E source driver", () => {
+  it("drives the phone and code pages directly and remains idempotent", async () => {
+    const methods = await readFile(path.join(featureRoot, "java-snippets/login-methods.java"), "utf8");
+    const source = `public class LoginActivity {
+    public void setPage(int page, boolean animated, Bundle params, boolean back) {
+        currentViewNum = page;
+    }
+
+    @Override
+    public void saveSelfArgs(Bundle outState) {}
+}`;
+    const patched = patchLoginE2eSource(source, "LoginActivity.java", methods);
+
+    expect(patched).toContain("phoneView.onNextPressed(null)");
+    expect(patched).toContain("views[page].onNextPressed(code)");
+    expect(patched).toContain("maybeRunCrossgramE2eCode(page);");
+    expect(patchLoginE2eSource(patched, "LoginActivity.java", methods)).toBe(patched);
+  });
+
+  it("dispatches real dialogs, chat and send-message calls from LaunchActivity", async () => {
+    const method = await readFile(path.join(featureRoot, "java-snippets/launch-method.java"), "utf8");
+    const source = `public class LaunchActivity {
+    private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword) {
+        return false;
+    }
+
+    private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword, Browser.Progress progress, boolean rebuildFragments, boolean openedTelegram) {
+        return false;
+    }
+}`;
+    const patched = patchLaunchE2eSource(source, "LaunchActivity.java", method);
+
+    expect(patched).toContain("new DialogsActivity(new Bundle())");
+    expect(patched).toContain("new ChatActivity(args)");
+    expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendMessage");
+    expect(patched).toContain('android.util.Log.i("CrossgramE2E", "state activated="');
+    expect(patched).toContain("if (handleCrossgramE2eIntent(intent))");
+    expect(patchLaunchE2eSource(patched, "LaunchActivity.java", method)).toBe(patched);
+  });
+
+  it("registers the exported dispatcher only in the debug manifest", async () => {
+    const manifest = await readFile(path.join(featureRoot, "debug/AndroidManifest.xml"), "utf8");
+    const activity = await readFile(
+      path.join(featureRoot, "java/org/telegram/ui/CrossgramE2eActivity.java"),
+      "utf8",
+    );
+
+    expect(manifest).toContain('android:name="org.telegram.ui.CrossgramE2eActivity"');
+    expect(manifest).toContain('android:exported="true"');
+    expect(activity).toContain("if (!BuildConfig.DEBUG)");
+    expect(activity).not.toContain("crossgram_e2e_code\"");
+  });
+});
