@@ -364,9 +364,11 @@ async function main() {
       ["--es", "crossgram_e2e_peer_type", failurePeerType],
       ["--el", "crossgram_e2e_peer_id", failurePeerId],
       ["--es", "crossgram_e2e_message_base64", Buffer.from(failureMessage).toString("base64")],
+      ["--ez", "crossgram_e2e_expect_send_error", true],
     ]);
     await waitFor("function_called:sendMessage");
     const rejected = await waitForPermanentSendRejection(relayRoot, baselineId, failureMessage);
+    await waitFor("send_error local_id=");
 
     const retryWindowMs = Number(option("retry-window-ms", "12000"));
     if (!Number.isFinite(retryWindowMs) || retryWindowMs < 10_000) {

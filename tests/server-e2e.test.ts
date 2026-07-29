@@ -189,6 +189,8 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('if (command === "send-unblock")');
     expect(runner).toContain("waitForPermanentSendRejection(relayRoot, baselineId, failureMessage)");
     expect(runner).toContain('"CHAT_WRITE_FORBIDDEN"');
+    expect(runner).toContain('crossgram_e2e_expect_send_error", true');
+    expect(runner).toContain('waitFor("send_error local_id=")');
     expect(runner).toContain("countSendRequests(afterRetryWindow, failureMessage)");
     expect(runner).toContain("reply sent after permanent rejection");
     expect(runner).toContain('"chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction", "download"');
@@ -221,6 +223,17 @@ describe("Android server E2E source driver", () => {
 
     expect(source).toContain("existingFile.exists() && !existingFile.delete()");
     expect(source).toContain('+ " file=" + fileName');
+  });
+
+  it("observes Android moving a permanently rejected message into send-error state", async () => {
+    const source = await readFile(path.resolve(
+      "features/server-e2e/files/java-snippets/launch-method.java",
+    ), "utf8");
+
+    expect(source).toContain('getBooleanExtra("crossgram_e2e_expect_send_error", false)');
+    expect(source).toContain("NotificationCenter.messageSendError");
+    expect(source).toContain('"send_error local_id=" + args[0]');
+    expect(source).toContain("removeObserver(");
   });
 
   it("ships a read-only Android history cache inspector", async () => {
