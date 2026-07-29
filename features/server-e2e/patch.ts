@@ -81,6 +81,19 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
   return source;
 }
 
+export function patchNativeE2eSource(initial: string, file: string): string {
+  const marker = "/* CROSSGRAM E2E: accept the ephemeral debug signing certificate. */";
+  if (initial.includes(marker)) return initial;
+  return replaceRegexOnce(
+    initial,
+    /[ \t]*if \(verifySign\(env\) != JNI_OK\) \{\r?\n[ \t]*return JNI_ERR;\r?\n[ \t]*\}/,
+    `\n    ${marker}`,
+    marker,
+    file,
+    "allow the dedicated debug E2E APK signing certificate",
+  );
+}
+
 export async function applyServerE2e(root: string): Promise<PatchResult> {
   const changedFiles: string[] = [];
   await installFile(
@@ -106,6 +119,12 @@ export async function applyServerE2e(root: string): Promise<PatchResult> {
     "TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java",
     changedFiles,
     async (source) => patchLaunchE2eSource(source, "LaunchActivity.java", await template("java-snippets/launch-method.java")),
+  );
+  await editFile(
+    root,
+    "TMessagesProj/jni/jni.c",
+    changedFiles,
+    (source) => patchNativeE2eSource(source, "jni.c"),
   );
   return { changedFiles };
 }

@@ -1,4 +1,13 @@
-# Crossgram Android patcher
+# Crossgram Android direct-function E2E patcher
+
+本仓库用于把只存在于 Android 进程内的页面与业务函数暴露给 adb 驱动，以真实
+Crossgram relay/QQNT 服务器做端到端测试。它会注入 debug-only Activity、直接调用
+`LoginActivity`、`DialogsActivity`、`ChatActivity`、`SendMessagesHelper` 等真实代码，
+并自动重编 Nagram 调试 APK。详细方法、命令与验收口径见
+[Android 服务器直接函数 E2E](docs/android-server-direct-e2e.md)。
+
+> 这是测试构建工具，不是面向用户发布的客户端。E2E patch 会在 native 层放行测试
+> 签名，且导出一个仅 debug manifest 可见的 adb Activity；不要分发生成的 APK。
 
 [![一键构建并发布](https://img.shields.io/badge/GitHub_Actions-一键构建并发布-2088FF?logo=githubactions&logoColor=white)](https://github.com/crossgram-project/crossgram-android/actions/workflows/release.yml)
 
