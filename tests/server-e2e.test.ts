@@ -47,7 +47,17 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("new ChatActivity(args)");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendMessage");
     expect(patched).toContain("crossgram_e2e_message_base64");
-    expect(patched).toContain("MessagesController.getInstance(currentAccount).loadMessages");
+    expect(patched).toContain("messagesController.loadMessages");
+    expect(patched).toContain("MessagesController.LOAD_FROM_UNREAD");
+    expect(patched).toContain("TLRPC.TL_messages_getPeerDialogs");
+    expect(patched).toContain("TLRPC.TL_inputPeerChannel");
+    expect(patched).toContain("messagesController.putUsers(result.users, false)");
+    expect(patched).toContain("messagesController.putChats(result.chats, false)");
+    expect(patched).toContain("history_peer_hydration_started");
+    expect(patched).toContain("history_peer_hydrated");
+    expect(patched).toContain("reason=peer_metadata_rpc");
+    expect(patched).toContain("reason=peer_metadata_missing");
+    expect(patched).toContain("ordered_desc=");
     expect(patched).toContain("NotificationCenter.messagesDidLoad");
     expect(patched).toContain('"history_loaded source="');
     expect(patched).toContain('android.util.Log.i("CrossgramE2E", "state activated="');
@@ -71,6 +81,7 @@ describe("Android server E2E source driver", () => {
     const patched = patchLaunchE2eSource(source, "LaunchActivity.java", method);
     expect(patched).toContain("crossgram_e2e_message_base64");
     expect(patched).toContain("history_loaded source=");
+    expect(patched).toContain("private boolean runCrossgramE2eHistory");
     expect(patched).not.toContain('String message = intent.getStringExtra("crossgram_e2e_message");');
     expect(patchLaunchE2eSource(patched, "LaunchActivity.java", method)).toBe(patched);
   });
@@ -116,6 +127,22 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('if (peerType !== "user") return stableId(`peer:${conversation}`)');
     expect(runner).toContain('throw new Error("--message is required for send")');
     expect(runner).toContain('if (command === "history")');
-    expect(runner).toContain('await waitFor(`history_loaded source=${source}`)');
+    expect(runner).toContain('waitForOutcome(`function_called:loadMessages source=${source}`, "history_failed")');
+    expect(runner).toContain('waitForOutcome(`history_loaded source=${source}`, "history_failed")');
+    expect(runner).toContain('if (cold) adb(["shell", "am", "force-stop", packageName])');
+    expect(runner).toContain("Android history IDs are not in descending Telegram order");
+    expect(runner).toContain("Android pagination returned messages newer than its anchor");
+    expect(runner).toContain("Android pagination did not advance past its anchor");
   });
+
+  it("ships a read-only Android history cache inspector", async () => {
+    const inspector = await readFile(path.resolve("scripts/e2e/inspect-android-cache.mjs"), "utf8");
+
+    expect(inspector).toContain('new DatabaseSync(databasePath, { readOnly: true })');
+    expect(inspector).toContain('db.exec("PRAGMA query_only = ON")');
+    expect(inspector).toContain("length(data) AS dataBytes");
+    expect(inspector).toContain("SELECT start, end FROM messages_holes");
+    expect(inspector).not.toContain("SELECT data FROM messages_v2");
+  });
+
 });
