@@ -53,10 +53,20 @@ export function patchLoginE2eSource(initial: string, file: string, methods: stri
 }
 
 export function patchLaunchE2eSource(initial: string, file: string, method: string): string {
-  const helperMarker = "private boolean runCrossgramE2eHistory(Intent intent, int hydrationAttempt)";
-  const helperOffset = method.indexOf(`    ${helperMarker}`);
-  if (helperOffset < 0) throw new Error("server E2E launch template has no history helper");
-  const historyHelper = method.slice(helperOffset).trimEnd();
+  const helperNames = [
+    "runCrossgramE2eHistory",
+    "runCrossgramE2eWithMessage",
+    "runCrossgramE2eSearch",
+  ];
+  const helperOffsets = helperNames.map((name) => method.indexOf(`    private boolean ${name}(`));
+  if (helperOffsets.some((offset) => offset < 0)) {
+    throw new Error("server E2E launch template is missing a helper declaration");
+  }
+  const helperBlocks = helperNames.map((name, index) => ({
+    name,
+    marker: `private boolean ${name}(`,
+    source: method.slice(helperOffsets[index], helperOffsets[index + 1] ?? method.length).trimEnd(),
+  }));
   let templateBody = "";
   editDeclarationBody(
     method,
@@ -87,22 +97,24 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
       "add direct page and function dispatcher",
     );
   }
-  if (!source.includes(helperMarker)) {
-    source = replaceRegexOnce(
-      source,
-      /(?=^[ \t]*private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword\)\s*\{)/m,
-      `\n${historyHelper}\n\n`,
-      helperMarker,
-      file,
-      "add direct history helper",
-    );
-  } else {
+  for (const helper of helperBlocks) {
+    if (!source.includes(helper.marker)) {
+      source = replaceRegexOnce(
+        source,
+        /(?=^[ \t]*private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword\)\s*\{)/m,
+        `\n${helper.source}\n\n`,
+        helper.marker,
+        file,
+        `add direct ${helper.name} helper`,
+      );
+      continue;
+    }
     let helperBody = "";
     editDeclarationBody(
-      historyHelper,
-      /private\s+boolean\s+runCrossgramE2eHistory\s*\(/,
+      helper.source,
+      new RegExp(`private\\s+boolean\\s+${helper.name}\\s*\\(`),
       "launch-method.java",
-      "runCrossgramE2eHistory template",
+      `${helper.name} template`,
       (body) => {
         helperBody = body;
         return body;
@@ -110,9 +122,9 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
     );
     source = editDeclarationBody(
       source,
-      /private\s+boolean\s+runCrossgramE2eHistory\s*\(/,
+      new RegExp(`private\\s+boolean\\s+${helper.name}\\s*\\(`),
       file,
-      "LaunchActivity.runCrossgramE2eHistory",
+      `LaunchActivity.${helper.name}`,
       () => helperBody,
     );
   }

@@ -30,7 +30,7 @@ describe("Android server E2E source driver", () => {
     expect(patchLoginE2eSource(patched, "LoginActivity.java", methods)).toBe(patched);
   });
 
-  it("dispatches real dialogs, chat and send-message calls from LaunchActivity", async () => {
+  it("dispatches real page, history, search, read and message lifecycle calls from LaunchActivity", async () => {
     const method = await readFile(path.join(featureRoot, "java-snippets/launch-method.java"), "utf8");
     const source = `public class LaunchActivity {
     private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword) {
@@ -46,6 +46,15 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("new DialogsActivity(new Bundle())");
     expect(patched).toContain("new ChatActivity(args)");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendMessage");
+    expect(patched).toContain("searchMessagesInChat");
+    expect(patched).toContain("markDialogAsRead");
+    expect(patched).toContain("saveDraft");
+    expect(patched).toContain("editMessage(target, message");
+    expect(patched).toContain("deleteMessages(");
+    expect(patched).toContain("sendMessage(messages, destinationDialogId");
+    expect(patched).toContain("sendReaction(");
+    expect(patched).toContain("runCrossgramE2eWithMessage");
+    expect(patched).toContain("runCrossgramE2eSearch");
     expect(patched).toContain("crossgram_e2e_message_base64");
     expect(patched).toContain("messagesController.loadMessages");
     expect(patched).toContain("MessagesController.LOAD_FROM_UNREAD");
@@ -75,13 +84,16 @@ describe("Android server E2E source driver", () => {
       .replace(
         /        if \("history"\.equals\(command\)\) \{[\s\S]*?(?=        if \("send"\.equals\(command\)\) \{)/,
         "",
-      );
+      )
+      .replace(/\n    private boolean runCrossgramE2eWithMessage[\s\S]*$/, "");
     const source = `public class LaunchActivity {\n${legacyMethod}\n\n    private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword) { return false; }\n    private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword, Browser.Progress progress, boolean rebuildFragments, boolean openedTelegram) { return false; }\n}`;
 
     const patched = patchLaunchE2eSource(source, "LaunchActivity.java", method);
     expect(patched).toContain("crossgram_e2e_message_base64");
     expect(patched).toContain("history_loaded source=");
     expect(patched).toContain("private boolean runCrossgramE2eHistory");
+    expect(patched).toContain("private boolean runCrossgramE2eWithMessage");
+    expect(patched).toContain("private boolean runCrossgramE2eSearch");
     expect(patched).not.toContain('String message = intent.getStringExtra("crossgram_e2e_message");');
     expect(patchLaunchE2eSource(patched, "LaunchActivity.java", method)).toBe(patched);
   });
@@ -124,8 +136,19 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('if (command === "state")');
     expect(runner).toContain('Buffer.from(message).toString("base64")');
     expect(runner).toContain("waitForRelayMessage(relayRoot, message)");
+    expect(runner).toContain('["--no-warnings", inspector, "sql", sql]');
+    expect(runner).toContain("/database is (locked|busy)/i");
     expect(runner).toContain('if (peerType !== "user") return stableId(`peer:${conversation}`)');
     expect(runner).toContain('throw new Error("--message is required for send")');
+    expect(runner).toContain('"chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction"');
+    expect(runner).toContain("resolveMessageTarget(");
+    expect(runner).toContain("persisted reply relationship");
+    expect(runner).toContain("selected message reaction");
+    expect(runner).toContain("delete-and-resend edit tombstone");
+    expect(runner).toContain("deleted message tombstone");
+    expect(runner).toContain("saved draft");
+    expect(runner).toContain("const messageExtras = message");
+    expect(runner).toContain("...messageExtras");
     expect(runner).toContain('if (command === "history")');
     expect(runner).toContain('waitForOutcome(`function_called:loadMessages source=${source}`, "history_failed")');
     expect(runner).toContain('waitForOutcome(`history_loaded source=${source}`, "history_failed")');

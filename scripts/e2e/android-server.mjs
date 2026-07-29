@@ -23,7 +23,7 @@ function adb(args) {
 
 function inspectSql(relayRoot, sql) {
   const inspector = path.join(relayRoot, ".agents/skills/inspect-relay/scripts/inspect-relay.mjs");
-  return JSON.parse(run(process.execPath, [inspector, "sql", sql], { cwd: relayRoot }));
+  return JSON.parse(run(process.execPath, ["--no-warnings", inspector, "sql", sql], { cwd: relayRoot }));
 }
 
 function sqlString(value) {
@@ -109,16 +109,32 @@ function historyLoadType(value, source, maxId) {
 }
 
 async function waitForRelayMessage(relayRoot, message, timeoutMs = 45_000) {
+  return waitForRelaySql(
+    relayRoot,
+    `SELECT m.id, m.primaryPlatformMessageId, p.tlMessageId
+       FROM mtproto_im_message m
+       JOIN mtproto_tl_message_part p ON p.messageId=m.id
+      WHERE m.text=${sqlString(message)} AND m.outgoing=1 AND m.deleted=0
+      ORDER BY m.id DESC, p.ordinal LIMIT 1`,
+    (rows) => rows[0],
+    "outgoing Android message",
+    timeoutMs,
+  );
+}
+
+async function waitForRelaySql(relayRoot, sql, accept, description, timeoutMs = 45_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const rows = inspectSql(
-      relayRoot,
-      `SELECT id, primaryPlatformMessageId FROM mtproto_im_message WHERE text=${sqlString(message)} AND outgoing=1 ORDER BY id DESC LIMIT 1`,
-    );
-    if (rows.length) return rows[0];
+    try {
+      const result = accept(inspectSql(relayRoot, sql));
+      if (result) return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/database is (locked|busy)/i.test(message)) throw error;
+    }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  throw new Error("Timed out waiting for relay to persist the outgoing Android message");
+  throw new Error(`Timed out waiting for relay evidence: ${description}`);
 }
 
 async function dispatch(component, action, command, extras = []) {
@@ -134,6 +150,26 @@ function resolvePeer(relayRoot, conversation, peerType, explicitPeerId) {
   );
   if (!user) throw new Error(`Relay has no user mapping for direct conversation: ${conversation}`);
   return user.id;
+}
+
+function resolveMessageTarget(relayRoot, conversation, explicitTlId, targetMessage) {
+  if (!explicitTlId && !targetMessage) {
+    throw new Error("--target-id or --target-message is required for this message operation");
+  }
+  const predicate = explicitTlId
+    ? `p.tlMessageId=${Number(explicitTlId)}`
+    : `m.text=${sqlString(targetMessage ?? "")}`;
+  const [target] = inspectSql(
+    relayRoot,
+    `SELECT m.id, m.primaryPlatformMessageId, m.text, m.deleted, p.tlMessageId
+       FROM mtproto_im_message m
+       JOIN mtproto_tl_message_part p ON p.messageId=m.id
+       JOIN mtproto_im_conversation c ON c.id=m.conversationId
+      WHERE c.platformConversationId=${sqlString(conversation)} AND ${predicate}
+      ORDER BY m.id DESC, p.ordinal LIMIT 1`,
+  );
+  if (!target) throw new Error("Relay has no matching message target for the requested Android operation");
+  return target;
 }
 
 async function main() {
@@ -231,10 +267,13 @@ async function main() {
     }
   }
 
-  if (command === "chat" || command === "send" || command === "all") {
+  const peerCommands = new Set([
+    "chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction",
+  ]);
+  if (peerCommands.has(command) || command === "all") {
     const conversation = option("conversation");
     if (!conversation) {
-      if (command !== "all") throw new Error("--conversation is required for chat/send");
+      if (command !== "all") throw new Error(`--conversation is required for ${command}`);
     } else {
       const peerType = option("peer-type", "chat");
       const explicitPeerId = option("peer-id");
@@ -245,9 +284,9 @@ async function main() {
       ]);
       await waitFor("page_opened:chat");
 
-      const message = option("message");
-      if (command === "send" && !message) throw new Error("--message is required for send");
-      if ((command === "send" || message) && message) {
+      if (command === "send" || (command === "all" && option("message"))) {
+        const message = option("message");
+        if (!message) throw new Error("--message is required for send");
         await dispatch(launchComponent, e2eAction, "send", [
           ["--es", "crossgram_e2e_peer_type", peerType],
           ["--el", "crossgram_e2e_peer_id", peerId],
@@ -255,6 +294,144 @@ async function main() {
         ]);
         await waitFor("function_called:sendMessage");
         await waitForRelayMessage(relayRoot, message);
+      }
+
+      if (command === "search") {
+        const query = option("query");
+        if (!query) throw new Error("--query is required for search");
+        await dispatch(launchComponent, e2eAction, "search", [
+          ["--es", "crossgram_e2e_peer_type", peerType],
+          ["--el", "crossgram_e2e_peer_id", peerId],
+          ["--es", "crossgram_e2e_query_base64", Buffer.from(query).toString("base64")],
+        ]);
+        await waitForOutcome("function_called:searchMessagesInChat", "search_failed");
+        const output = await waitForOutcome("search_loaded", "search_failed");
+        const fields = markerFields(output, "search_loaded");
+        const minCount = Number(option("min-count", "1"));
+        if (Number(fields.count) < minCount || Number(fields.result_id) <= 0) {
+          throw new Error(`Android search returned no usable result: count=${fields.count}, result_id=${fields.result_id}`);
+        }
+      }
+
+      if (["read", "reply", "edit", "delete", "forward", "reaction"].includes(command)) {
+        const target = resolveMessageTarget(
+          relayRoot,
+          conversation,
+          option("target-id"),
+          option("target-message"),
+        );
+        const targetExtras = [
+          ["--es", "crossgram_e2e_peer_type", peerType],
+          ["--el", "crossgram_e2e_peer_id", peerId],
+          ["--ei", "crossgram_e2e_target_message_id", target.tlMessageId],
+        ];
+
+        if (command === "read") {
+          await dispatch(launchComponent, e2eAction, "read", targetExtras);
+          await waitFor("function_called:markDialogAsRead");
+        } else if (command === "reply") {
+          const message = option("message");
+          if (!message) throw new Error("--message is required for reply");
+          await dispatch(launchComponent, e2eAction, "reply", [
+            ...targetExtras,
+            ["--es", "crossgram_e2e_message_base64", Buffer.from(message).toString("base64")],
+          ]);
+          await waitForOutcome("function_called:replyMessage", "reply_failed");
+          const sent = await waitForRelayMessage(relayRoot, message);
+          await waitForRelaySql(
+            relayRoot,
+            `SELECT id FROM mtproto_im_message
+              WHERE id=${Number(sent.id)}
+                AND json_extract(metadata, '$.__mtprotoRelayReplyToId')=${sqlString(target.primaryPlatformMessageId)}
+              LIMIT 1`,
+            (rows) => rows[0],
+            "persisted reply relationship",
+          );
+        } else if (command === "reaction") {
+          const reaction = option("reaction", "👍");
+          await dispatch(launchComponent, e2eAction, "reaction", [
+            ...targetExtras,
+            ["--es", "crossgram_e2e_reaction", reaction],
+          ]);
+          await waitForOutcome("function_called:sendReaction", "reaction_failed");
+          await waitForOutcome("reaction_applied", "reaction_failed");
+          await waitForRelaySql(
+            relayRoot,
+            `SELECT id FROM mtproto_im_message_reaction
+              WHERE messageId=${Number(target.id)} AND selected=1 AND count > 0 LIMIT 1`,
+            (rows) => rows[0],
+            "selected message reaction",
+          );
+        } else if (command === "forward") {
+          const destinationConversation = option("destination-conversation", conversation);
+          const destinationPeerType = option("destination-peer-type", peerType);
+          const destinationPeerId = resolvePeer(
+            relayRoot,
+            destinationConversation,
+            destinationPeerType,
+            option("destination-peer-id"),
+          );
+          const [baseline] = inspectSql(relayRoot, "SELECT COALESCE(MAX(id), 0) AS id FROM mtproto_im_message");
+          await dispatch(launchComponent, e2eAction, "forward", [
+            ...targetExtras,
+            ["--es", "crossgram_e2e_destination_peer_type", destinationPeerType],
+            ["--el", "crossgram_e2e_destination_peer_id", destinationPeerId],
+          ]);
+          await waitForOutcome("function_called:forwardMessages", "forward_failed");
+          await waitForRelaySql(
+            relayRoot,
+            `SELECT m.id FROM mtproto_im_message m
+               JOIN mtproto_im_conversation c ON c.id=m.conversationId
+              WHERE m.id > ${Number(baseline.id)} AND m.outgoing=1 AND m.deleted=0
+                AND c.platformConversationId=${sqlString(destinationConversation)}
+              ORDER BY m.id LIMIT 1`,
+            (rows) => rows[0],
+            "forwarded outgoing message",
+          );
+        } else if (command === "edit") {
+          const message = option("message");
+          if (!message) throw new Error("--message is required for edit");
+          await dispatch(launchComponent, e2eAction, "edit", [
+            ...targetExtras,
+            ["--es", "crossgram_e2e_message_base64", Buffer.from(message).toString("base64")],
+          ]);
+          await waitForOutcome("function_called:editMessage", "edit_failed");
+          await waitForRelayMessage(relayRoot, message);
+          await waitForRelaySql(
+            relayRoot,
+            `SELECT id FROM mtproto_im_message WHERE id=${Number(target.id)} AND deleted=1 LIMIT 1`,
+            (rows) => rows[0],
+            "delete-and-resend edit tombstone",
+          );
+        } else if (command === "delete") {
+          await dispatch(launchComponent, e2eAction, "delete", targetExtras);
+          await waitForOutcome("function_called:deleteMessages", "delete_failed");
+          await waitForRelaySql(
+            relayRoot,
+            `SELECT id FROM mtproto_im_message WHERE id=${Number(target.id)} AND deleted=1 LIMIT 1`,
+            (rows) => rows[0],
+            "deleted message tombstone",
+          );
+        }
+      }
+
+      if (command === "draft") {
+        const message = option("message", "");
+        const messageExtras = message
+          ? [["--es", "crossgram_e2e_message_base64", Buffer.from(message).toString("base64")]]
+          : [];
+        await dispatch(launchComponent, e2eAction, "draft", [
+          ["--es", "crossgram_e2e_peer_type", peerType],
+          ["--el", "crossgram_e2e_peer_id", peerId],
+          ...messageExtras,
+        ]);
+        await waitFor("function_called:saveDraft");
+        await waitForRelaySql(
+          relayRoot,
+          `SELECT id FROM mtproto_draft WHERE platformConversationId=${sqlString(conversation)} AND topMsgId=0`,
+          (rows) => message ? rows[0] : rows.length === 0,
+          message ? "saved draft" : "cleared draft",
+        );
       }
     }
   }
