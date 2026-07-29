@@ -2,6 +2,7 @@
 import path from "node:path";
 
 import { applyServerSwitch } from "../features/server-switch/patch.js";
+import { applyDirectDownload } from "../features/direct-download/patch.js";
 import { applyBrand, getBrand } from "./branding.js";
 import { prepareBuild, type BuildVariant } from "./build/prepare.js";
 import { emitGithubMatrices } from "./discover.js";
@@ -22,7 +23,12 @@ async function main(): Promise<void> {
     const upstream = getUpstream(option("client")!);
     const root = path.resolve(option("source")!);
     const result = await applyServerSwitch(root, upstream);
-    console.log(JSON.stringify({ client: upstream.id, source: root, ...result }, null, 2));
+    const directDownloadFiles = await applyDirectDownload(root, upstream);
+    console.log(JSON.stringify({
+      client: upstream.id,
+      source: root,
+      changedFiles: [...result.changedFiles, ...directDownloadFiles],
+    }, null, 2));
   } else if (command === "discover") {
     const result = await emitGithubMatrices(option("github-output", false));
     console.log(JSON.stringify(result, null, 2));

@@ -4,6 +4,12 @@
 
 Crossgram 在 Telegram Android 及其第三方客户端源码上语义地注入服务器切换能力，并通过 GitHub Actions 自动构建多个品牌和 ABI 版本。patcher 使用 TypeScript、Node.js 24 与 Yarn 4；大段 Java/C++/资源代码保存在 `features/server-switch/files`，不依赖 `git apply`。
 
+对于 `bridge-media:` 文件，修改版客户端会先调用 Crossgram 的
+`crossgram.getFileUrl` RPC，并使用 HTTP Range 直连源站；RPC、URL 或 HTTP
+请求失败时自动回退到原有 `upload.getFile` relay 下载。每个下载操作通过
+`getCrossgramDownloadTransport()` 暴露 `direct` / `relay` 状态，日志使用
+`crossgram_download_transport=<direct|relay>` 标记。
+
 ## 已支持的上游
 
 | 客户端 | 上游 | 登录页入口 |
