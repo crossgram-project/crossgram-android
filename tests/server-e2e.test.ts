@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   patchLaunchE2eSource,
+  patchDirectDownloadE2eSource,
   patchLoginE2eSource,
   patchNativeE2eSource,
 } from "../features/server-e2e/patch.js";
@@ -55,6 +56,9 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("sendReaction(");
     expect(patched).toContain("runCrossgramE2eWithMessage");
     expect(patched).toContain("runCrossgramE2eSearch");
+    expect(patched).toContain("runCrossgramE2eDownload");
+    expect(patched).toContain("loader.loadFile(document, target");
+    expect(patched).toContain("download_loaded");
     expect(patched).toContain("crossgram_e2e_message_base64");
     expect(patched).toContain("messagesController.loadMessages");
     expect(patched).toContain("MessagesController.LOAD_FROM_UNREAD");
@@ -141,10 +145,27 @@ describe("Android server E2E source driver", () => {
     expect(patchNativeE2eSource(patched, "jni.c")).toBe(patched);
   });
 
+  it("adds an idempotent debug-only direct HTTP failure hook", () => {
+    const source = `public final class CrossgramDirectDownload {
+    private static final ConcurrentHashMap<Integer, HttpURLConnection[]> HTTP_REQUESTS = new ConcurrentHashMap<>();
+    private CrossgramDirectDownload() {}
+    void resolved(String url, long expiresAt) {
+        callback.onResult(new ResolvedUrl(url, expiresAt), null);
+    }
+}`;
+    const patched = patchDirectDownloadE2eSource(source, "CrossgramDirectDownload.java");
+
+    expect(patched).toContain("setCrossgramE2eForceHttpFailure(boolean value)");
+    expect(patched).toContain("if (!org.telegram.messenger.BuildConfig.DEBUG)");
+    expect(patched).toContain("http://127.0.0.1:1/crossgram-e2e-force-failure");
+    expect(patchDirectDownloadE2eSource(patched, "CrossgramDirectDownload.java")).toBe(patched);
+  });
+
   it("sends follow-up commands straight to the running LaunchActivity", async () => {
     const runner = await readFile(path.resolve("scripts/e2e/android-server.mjs"), "utf8");
 
     expect(runner).toContain('const launchComponent = `${packageName}/org.telegram.ui.LaunchActivity`;');
+    expect(runner).toContain('"CrossgramDirectDownload:D"');
     expect(runner).toContain('const e2eAction = "org.telegram.messenger.CROSSGRAM_E2E";');
     expect(runner).toContain('if (action) args.push("-a", action);');
     expect(runner).toContain('dispatch(launchComponent, e2eAction, "state")');
@@ -156,7 +177,10 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain("/database is (locked|busy)/i");
     expect(runner).toContain('if (peerType !== "user") return stableId(`peer:${conversation}`)');
     expect(runner).toContain('throw new Error("--message is required for send")');
-    expect(runner).toContain('"chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction"');
+    expect(runner).toContain('"chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction", "download"');
+    expect(runner).toContain('waitForOutcome("download_loaded", "download_failed", 90_000)');
+    expect(runner).toContain("waitForTransport(transport, fields.file)");
+    expect(runner).toContain('crossgram_e2e_force_http_failure", transport === "relay"');
     expect(runner).toContain("resolveMessageTarget(");
     expect(runner).toContain("persisted reply relationship");
     expect(runner).toContain("selected message reaction");
@@ -174,6 +198,15 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain("Android backward pagination did not advance past its anchor");
     expect(runner).toContain('const requireBothSides = booleanOption("require-both-sides")');
     expect(runner).toContain("Android around window did not span its anchor");
+  });
+
+  it("forces each download E2E through FileLoader instead of accepting a cached file", async () => {
+    const source = await readFile(path.resolve(
+      "features/server-e2e/files/java-snippets/launch-method.java",
+    ), "utf8");
+
+    expect(source).toContain("existingFile.exists() && !existingFile.delete()");
+    expect(source).toContain('+ " file=" + fileName');
   });
 
   it("ships a read-only Android history cache inspector", async () => {

@@ -100,7 +100,16 @@ yarn e2e:android-server --command history --conversation 479613101 --source serv
 yarn e2e:android-server --command history --conversation 479613101 --source cache --count 50
 yarn e2e:android-server --command history --conversation 479613101 --source server \
   --count 50 --max-id <previous-min-id>
+yarn e2e:android-server --command download --conversation <platform-conversation-id> \
+  --target-id <tl-message-id> --transport direct
+yarn e2e:android-server --command download --conversation <platform-conversation-id> \
+  --target-id <tl-message-id> --transport relay
 ```
+
+`download` 会从 relay 只读查询目标消息的首个非空媒体 ID/大小，在 Android 进程内先通过
+`MessagesController.loadMessages` 取得真实 `MessageObject`，再调用 `FileLoader.loadFile`。
+`direct` 要求出现直连 transport marker；`relay` 仅在 debug E2E patch 中把 HTTP URL
+临时指向关闭端口，要求同一次下载自动回退 `upload.getFile`，且最终文件大小仍一致。
 
 消息生命周期命令使用明确的测试私聊，不要指向公共群：
 

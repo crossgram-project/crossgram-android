@@ -105,6 +105,7 @@ $1`,
                     try {
                         NativeByteBuffer buffer = new NativeByteBuffer(bytes.length);
                         buffer.writeBytes(bytes);
+                        buffer.position(0);
                         requestInfo.response.bytes = buffer;
                         processRequestResult(requestInfo, null);
                     } catch (Exception exception) {
@@ -125,6 +126,15 @@ $1`,
       );
       return updated;
     },
+  );
+  source = replaceRegexOnce(
+    source,
+    /(NativeByteBuffer buffer = new NativeByteBuffer\(bytes\.length\);\s*buffer\.writeBytes\(bytes\);)/,
+    `$1
+                        buffer.position(0);`,
+    "buffer.writeBytes(bytes);\n                        buffer.position(0);",
+    operationFile,
+    "rewind direct HTTP chunks before file assembly",
   );
   source = source.replaceAll(
     "ConnectionsManager.getInstance(currentAccount).cancelRequest(",

@@ -33,6 +33,13 @@
         if ("history".equals(command)) {
             return runCrossgramE2eHistory(intent, 0);
         }
+        if ("download".equals(command)) {
+            long mediaId = intent.getLongExtra("crossgram_e2e_media_id", 0);
+            long expectedSize = intent.getLongExtra("crossgram_e2e_expected_size", 0);
+            boolean forceHttpFailure = intent.getBooleanExtra("crossgram_e2e_force_http_failure", false);
+            return runCrossgramE2eWithMessage(intent, "download", target ->
+                    runCrossgramE2eDownload(target, mediaId, expectedSize, forceHttpFailure));
+        }
         if ("search".equals(command)) {
             return runCrossgramE2eSearch(intent);
         }
@@ -311,6 +318,102 @@
                     MessagesController.LOAD_AROUND_MESSAGE, 0, ChatActivity.MODE_DEFAULT, 0, 0, 0, false);
             android.util.Log.i("CrossgramE2E", "function_called:loadMessageTarget operation=" + operation
                     + " target_id=" + targetId);
+            return true;
+    }
+
+    private boolean runCrossgramE2eDownload(
+            MessageObject target,
+            long expectedMediaId,
+            long expectedSize,
+            boolean forceHttpFailure) {
+            TLRPC.Document document = target.getDocument();
+            TLRPC.Photo photo = target.messageOwner.media == null ? null : target.messageOwner.media.photo;
+            TLRPC.PhotoSize photoSize = photo == null
+                    ? null
+                    : FileLoader.getClosestPhotoSizeWithSize(
+                            photo.sizes, Integer.MAX_VALUE, false, null, true);
+            byte[] reference = document != null
+                    ? document.file_reference
+                    : photo != null ? photo.file_reference : null;
+            String expectedReference = "bridge-media:" + expectedMediaId;
+            String actualReference = reference == null
+                    ? ""
+                    : new String(reference, java.nio.charset.StandardCharsets.UTF_8);
+            if (expectedMediaId <= 0 || !expectedReference.equals(actualReference)) {
+                android.util.Log.e("CrossgramE2E", "download_failed reason=file_reference_mismatch"
+                        + " media_id=" + expectedMediaId);
+                return true;
+            }
+            if (document == null && photoSize == null) {
+                android.util.Log.e("CrossgramE2E", "download_failed reason=media_not_downloadable"
+                        + " media_id=" + expectedMediaId);
+                return true;
+            }
+            FileLoader loader = FileLoader.getInstance(currentAccount);
+            String fileName = FileLoader.getAttachFileName(document != null ? document : photoSize);
+            java.io.File existingFile = loader.getPathToAttach(document != null ? document : photoSize, false);
+            NotificationCenter.NotificationCenterDelegate observer = new NotificationCenter.NotificationCenterDelegate() {
+                private void remove() {
+                    NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.fileLoaded);
+                    NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.fileLoadFailed);
+                    org.telegram.messenger.crossgram_direct.CrossgramDirectDownload
+                            .setCrossgramE2eForceHttpFailure(false);
+                }
+
+                @Override
+                public void didReceivedNotification(int id, int account, Object... args) {
+                    if (!fileName.equals(args[0])) return;
+                    if (id == NotificationCenter.fileLoaded) {
+                        remove();
+                        java.io.File file = (java.io.File) args[1];
+                        long bytes = file.length();
+                        if (expectedSize > 0 && bytes != expectedSize) {
+                            android.util.Log.e("CrossgramE2E", "download_failed reason=size_mismatch"
+                                    + " media_id=" + expectedMediaId
+                                    + " bytes=" + bytes
+                                    + " expected=" + expectedSize
+                                    + " file=" + fileName);
+                        } else {
+                            android.util.Log.i("CrossgramE2E", "download_loaded"
+                                    + " media_id=" + expectedMediaId
+                                    + " bytes=" + bytes
+                                    + " file=" + fileName);
+                        }
+                    } else if (id == NotificationCenter.fileLoadFailed) {
+                        remove();
+                        android.util.Log.e("CrossgramE2E", "download_failed reason=file_loader"
+                                + " media_id=" + expectedMediaId
+                                + " state=" + args[1]);
+                    }
+                }
+            };
+            if (document != null) {
+                loader.cancelLoadFile(document, true);
+            } else {
+                loader.cancelLoadFile(photoSize, true);
+            }
+            if (existingFile.exists() && !existingFile.delete()) {
+                android.util.Log.e("CrossgramE2E", "download_failed reason=cache_delete"
+                        + " media_id=" + expectedMediaId
+                        + " file=" + fileName);
+                return true;
+            }
+            AndroidUtilities.runOnUIThread(() -> {
+                NotificationCenter.getInstance(currentAccount).addObserver(observer, NotificationCenter.fileLoaded);
+                NotificationCenter.getInstance(currentAccount).addObserver(observer, NotificationCenter.fileLoadFailed);
+                org.telegram.messenger.crossgram_direct.CrossgramDirectDownload
+                        .setCrossgramE2eForceHttpFailure(forceHttpFailure);
+                if (document != null) {
+                    loader.loadFile(document, target, FileLoader.PRIORITY_HIGH, 0);
+                } else {
+                    loader.loadFile(
+                            org.telegram.messenger.ImageLocation.getForPhoto(photoSize, photo),
+                            target, "jpg", FileLoader.PRIORITY_HIGH, 0);
+                }
+                android.util.Log.i("CrossgramE2E", "download_started"
+                        + " media_id=" + expectedMediaId
+                        + " forced_fallback=" + forceHttpFailure);
+            }, 250);
             return true;
     }
 
