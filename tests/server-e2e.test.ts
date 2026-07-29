@@ -145,4 +145,16 @@ describe("Android server E2E source driver", () => {
     expect(inspector).not.toContain("SELECT data FROM messages_v2");
   });
 
+  it("signs CI E2E builds with an ephemeral keystore", async () => {
+    const script = await readFile(path.resolve("scripts/ci/build-e2e-nagram.sh"), "utf8");
+
+    expect(script).toContain("SIGNING_ROOT=$(mktemp -d)");
+    expect(script).toContain("trap cleanup EXIT");
+    expect(script).toContain("keytool -genkeypair");
+    expect(script).toContain('export KEYSTORE_PASS="$SIGNING_PASSWORD"');
+    expect(script).toContain('export ALIAS_NAME="$SIGNING_ALIAS"');
+    expect(script).toContain('export ALIAS_PASS="$SIGNING_PASSWORD"');
+    expect(script).not.toContain("release.keystore.base64");
+  });
+
 });
