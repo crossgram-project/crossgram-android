@@ -90,6 +90,17 @@ async function dispatch(component, action, command, extras = []) {
   start(component, [["--es", "crossgram_e2e_command", command], ...extras], action);
 }
 
+function resolvePeer(relayRoot, conversation, peerType, explicitPeerId) {
+  if (explicitPeerId) return Number(explicitPeerId);
+  if (peerType !== "user") return stableId(`peer:${conversation}`);
+  const [user] = inspectSql(
+    relayRoot,
+    `SELECT id FROM mtproto_im_user WHERE platformUserId=${sqlString(conversation)} ORDER BY id LIMIT 1`,
+  );
+  if (!user) throw new Error(`Relay has no user mapping for direct conversation: ${conversation}`);
+  return user.id;
+}
+
 async function main() {
   const command = option("command", "all");
   const packageName = option("package", "xyz.nextalone.nagram.crossgram.qq");
@@ -144,6 +155,26 @@ async function main() {
     await waitFor("page_opened:dialogs");
   }
 
+  if (command === "history") {
+    const conversation = option("conversation");
+    if (!conversation) throw new Error("--conversation is required for history");
+    const peerType = option("peer-type", "chat");
+    const peerId = resolvePeer(relayRoot, conversation, peerType, option("peer-id"));
+    const count = Number(option("count", "50"));
+    const maxId = Number(option("max-id", "0"));
+    const source = option("source", "server");
+    if (source !== "server" && source !== "cache") throw new Error("--source must be server or cache");
+    await dispatch(launchComponent, e2eAction, "history", [
+      ["--es", "crossgram_e2e_peer_type", peerType],
+      ["--el", "crossgram_e2e_peer_id", peerId],
+      ["--ei", "crossgram_e2e_history_count", count],
+      ["--ei", "crossgram_e2e_history_max_id", maxId],
+      ["--ez", "crossgram_e2e_history_cache", source === "cache"],
+    ]);
+    await waitFor(`function_called:loadMessages source=${source}`);
+    await waitFor(`history_loaded source=${source}`);
+  }
+
   if (command === "chat" || command === "send" || command === "all") {
     const conversation = option("conversation");
     if (!conversation) {
@@ -151,15 +182,7 @@ async function main() {
     } else {
       const peerType = option("peer-type", "chat");
       const explicitPeerId = option("peer-id");
-      let peerId = explicitPeerId ? Number(explicitPeerId) : stableId(`peer:${conversation}`);
-      if (!explicitPeerId && peerType === "user") {
-        const [user] = inspectSql(
-          relayRoot,
-          `SELECT id FROM mtproto_im_user WHERE platformUserId=${sqlString(conversation)} ORDER BY id LIMIT 1`,
-        );
-        if (!user) throw new Error(`Relay has no user mapping for direct conversation: ${conversation}`);
-        peerId = user.id;
-      }
+      const peerId = resolvePeer(relayRoot, conversation, peerType, explicitPeerId);
       await dispatch(launchComponent, e2eAction, "chat", [
         ["--es", "crossgram_e2e_peer_type", peerType],
         ["--el", "crossgram_e2e_peer_id", peerId],
