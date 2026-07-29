@@ -398,21 +398,38 @@
                         + " file=" + fileName);
                 return true;
             }
+            target.mediaExists = false;
+            target.attachPathExists = false;
+            target.loadingCancelled = false;
             AndroidUtilities.runOnUIThread(() -> {
                 NotificationCenter.getInstance(currentAccount).addObserver(observer, NotificationCenter.fileLoaded);
                 NotificationCenter.getInstance(currentAccount).addObserver(observer, NotificationCenter.fileLoadFailed);
                 org.telegram.messenger.crossgram_direct.CrossgramDirectDownload
                         .setCrossgramE2eForceHttpFailure(forceHttpFailure);
-                if (document != null) {
-                    loader.loadFile(document, target, FileLoader.PRIORITY_HIGH, 0);
+                long dialogId = target.getDialogId();
+                Bundle chatArgs = new Bundle();
+                if (dialogId > 0) {
+                    chatArgs.putLong("user_id", dialogId);
                 } else {
-                    loader.loadFile(
-                            org.telegram.messenger.ImageLocation.getForPhoto(photoSize, photo),
-                            target, "jpg", FileLoader.PRIORITY_HIGH, 0);
+                    chatArgs.putLong("chat_id", -dialogId);
                 }
+                chatArgs.putInt("message_id", target.getId());
+                presentFragment(new ChatActivity(chatArgs));
+                android.util.Log.i("CrossgramE2E", "download_ui_opened"
+                        + " media_id=" + expectedMediaId
+                        + " target_id=" + target.getId());
                 android.util.Log.i("CrossgramE2E", "download_started"
                         + " media_id=" + expectedMediaId
                         + " forced_fallback=" + forceHttpFailure);
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (document != null) {
+                        loader.loadFile(document, target, FileLoader.PRIORITY_HIGH, 0);
+                    } else {
+                        loader.loadFile(
+                                org.telegram.messenger.ImageLocation.getForPhoto(photoSize, photo),
+                                target, "jpg", FileLoader.PRIORITY_HIGH, 0);
+                    }
+                }, 1000);
             }, 250);
             return true;
     }

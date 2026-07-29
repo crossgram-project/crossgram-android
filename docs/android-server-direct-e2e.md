@@ -108,6 +108,9 @@ yarn e2e:android-server --command download --conversation <platform-conversation
 
 `download` 会从 relay 只读查询目标消息的首个非空媒体 ID/大小，在 Android 进程内先通过
 `MessagesController.loadMessages` 取得真实 `MessageObject`，再调用 `FileLoader.loadFile`。
+测试会先删除该媒体的本地缓存，并用 `message_id` 打开定位到目标消息的真实 `ChatActivity`，
+以便 AVD 截图和 `crossgram_transport_badge` 日志能验证 `ChatMessageCell` 的模糊占位及
+“直连/中转”标签，而不只是后台下载结果。
 `direct` 要求出现直连 transport marker；`relay` 仅在 debug E2E patch 中把 HTTP URL
 临时指向关闭端口，要求同一次下载自动回退 `upload.getFile`，且最终文件大小仍一致。
 
