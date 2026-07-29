@@ -53,6 +53,8 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("editMessage(target, message");
     expect(patched).toContain("deleteMessages(");
     expect(patched).toContain("sendMessage(messages, destinationDialogId");
+    expect(patched).toContain('" request_id=" + requestId');
+    expect(patched).not.toContain("forward_failed reason=request_not_started");
     expect(patched).toContain("sendReaction(");
     expect(patched).toContain("runCrossgramE2eWithMessage");
     expect(patched).toContain("runCrossgramE2eSearch");

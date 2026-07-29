@@ -111,11 +111,10 @@
                 messages.add(target);
                 int requestId = SendMessagesHelper.getInstance(currentAccount)
                         .sendMessage(messages, destinationDialogId, false, false, true, 0, 0);
-                if (requestId == 0) {
-                    android.util.Log.e("CrossgramE2E", "forward_failed reason=request_not_started");
-                } else {
-                    android.util.Log.i("CrossgramE2E", "function_called:forwardMessages target_id=" + target.getId());
-                }
+                // Nagram may return 0 even after the forward has been queued.
+                // The host-side E2E verifies the authoritative new relay row.
+                android.util.Log.i("CrossgramE2E", "function_called:forwardMessages target_id=" + target.getId()
+                        + " request_id=" + requestId);
             });
         }
         if ("reaction".equals(command)) {
