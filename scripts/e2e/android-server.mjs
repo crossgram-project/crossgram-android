@@ -5,6 +5,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  countSendRequests,
+  findRpcError,
+  findSendRequest,
+  latestEventId,
+} from "./mtproto-evidence.mjs";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const patcherRoot = path.resolve(here, "../..");
 
@@ -24,6 +31,15 @@ function adb(args) {
 function inspectSql(relayRoot, sql) {
   const inspector = path.join(relayRoot, ".agents/skills/inspect-relay/scripts/inspect-relay.mjs");
   return JSON.parse(run(process.execPath, ["--no-warnings", inspector, "sql", sql], { cwd: relayRoot }));
+}
+
+function inspectMtproto(relayRoot, args = []) {
+  const inspector = path.join(relayRoot, ".agents/skills/inspect-relay/scripts/inspect-relay.mjs");
+  return JSON.parse(run(
+    process.execPath,
+    ["--no-warnings", inspector, "mtproto", "--compact", ...args],
+    { cwd: relayRoot },
+  ));
 }
 
 function sqlString(value) {
@@ -150,6 +166,26 @@ async function waitForRelaySql(relayRoot, sql, accept, description, timeoutMs = 
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timed out waiting for relay evidence: ${description}`);
+}
+
+async function waitForPermanentSendRejection(relayRoot, baselineId, message, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snapshot = inspectMtproto(relayRoot, [
+      "--after-id", String(baselineId),
+      "--limit", "500",
+    ]);
+    const request = findSendRequest(snapshot, message);
+    const rejection = request && findRpcError(
+      snapshot,
+      request.messageId,
+      403,
+      "CHAT_WRITE_FORBIDDEN",
+    );
+    if (request && rejection) return { request, rejection };
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Timed out waiting for permanent messages.sendMessage rejection: ${message}`);
 }
 
 async function dispatch(component, action, command, extras = []) {
@@ -290,6 +326,87 @@ async function main() {
       && !(Number(fields.min_id) < maxId && Number(fields.max_id) > maxId)) {
       throw new Error(`Android around window did not span its anchor: min_id=${fields.min_id}, max_id=${fields.max_id}, requested=${maxId}`);
     }
+  }
+
+  if (command === "send-unblock") {
+    const failureConversation = option("failure-conversation");
+    const conversation = option("conversation");
+    const replyMessage = option("message");
+    if (!failureConversation) throw new Error("--failure-conversation is required for send-unblock");
+    if (!conversation) throw new Error("--conversation is required for send-unblock");
+    if (!replyMessage) throw new Error("--message is required for send-unblock");
+
+    const failurePeerType = option("failure-peer-type", "user");
+    const failurePeerId = resolvePeer(
+      relayRoot,
+      failureConversation,
+      failurePeerType,
+      option("failure-peer-id"),
+    );
+    const peerType = option("peer-type", "chat");
+    const peerId = resolvePeer(relayRoot, conversation, peerType, option("peer-id"));
+    const target = resolveMessageTarget(
+      relayRoot,
+      conversation,
+      option("target-id"),
+      option("target-message"),
+    );
+    const failureMessage = option("failure-message", `crossgram-send-reject-${Date.now()}`);
+    const baselineId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
+
+    await dispatch(launchComponent, e2eAction, "chat", [
+      ["--es", "crossgram_e2e_peer_type", peerType],
+      ["--el", "crossgram_e2e_peer_id", peerId],
+    ]);
+    await waitFor("page_opened:chat");
+
+    await dispatch(launchComponent, e2eAction, "send", [
+      ["--es", "crossgram_e2e_peer_type", failurePeerType],
+      ["--el", "crossgram_e2e_peer_id", failurePeerId],
+      ["--es", "crossgram_e2e_message_base64", Buffer.from(failureMessage).toString("base64")],
+    ]);
+    await waitFor("function_called:sendMessage");
+    const rejected = await waitForPermanentSendRejection(relayRoot, baselineId, failureMessage);
+
+    const retryWindowMs = Number(option("retry-window-ms", "12000"));
+    if (!Number.isFinite(retryWindowMs) || retryWindowMs < 10_000) {
+      throw new Error("--retry-window-ms must be at least 10000");
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryWindowMs));
+    const afterRetryWindow = inspectMtproto(relayRoot, [
+      "--after-id", String(baselineId),
+      "--limit", "500",
+    ]);
+    const rejectedRequestCount = countSendRequests(afterRetryWindow, failureMessage);
+    if (rejectedRequestCount !== 1) {
+      throw new Error(`Permanent Android send was retried ${rejectedRequestCount} times in ${retryWindowMs}ms`);
+    }
+
+    await dispatch(launchComponent, e2eAction, "reply", [
+      ["--es", "crossgram_e2e_peer_type", peerType],
+      ["--el", "crossgram_e2e_peer_id", peerId],
+      ["--ei", "crossgram_e2e_target_message_id", target.tlMessageId],
+      ["--es", "crossgram_e2e_message_base64", Buffer.from(replyMessage).toString("base64")],
+    ]);
+    await waitForOutcome("function_called:replyMessage", "reply_failed");
+    const sent = await waitForRelayMessage(relayRoot, replyMessage);
+    await waitForRelaySql(
+      relayRoot,
+      `SELECT id FROM mtproto_im_message
+        WHERE id=${Number(sent.id)}
+          AND json_extract(metadata, '$.__mtprotoRelayReplyToId')=${sqlString(target.primaryPlatformMessageId)}
+        LIMIT 1`,
+      (rows) => rows[0],
+      "reply sent after permanent rejection",
+    );
+    process.stdout.write(`${JSON.stringify({
+      ok: true,
+      command,
+      rejectedRequestMessageId: rejected.request.messageId,
+      rejectedRequestCount,
+      replyMessageId: sent.id,
+    }, null, 2)}\n`);
+    return;
   }
 
   const peerCommands = new Set([

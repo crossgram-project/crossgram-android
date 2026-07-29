@@ -186,6 +186,11 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain("/database is (locked|busy)/i");
     expect(runner).toContain('if (peerType !== "user") return stableId(`peer:${conversation}`)');
     expect(runner).toContain('throw new Error("--message is required for send")');
+    expect(runner).toContain('if (command === "send-unblock")');
+    expect(runner).toContain("waitForPermanentSendRejection(relayRoot, baselineId, failureMessage)");
+    expect(runner).toContain('"CHAT_WRITE_FORBIDDEN"');
+    expect(runner).toContain("countSendRequests(afterRetryWindow, failureMessage)");
+    expect(runner).toContain("reply sent after permanent rejection");
     expect(runner).toContain('"chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction", "download"');
     expect(runner).toContain('waitForOutcome("download_loaded", "download_failed", 90_000)');
     expect(runner).toContain("waitForTransport(transport, fields.file)");
