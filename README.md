@@ -10,6 +10,12 @@ Crossgram 在 Telegram Android 及其第三方客户端源码上语义地注入�
 `getCrossgramDownloadTransport()` 暴露 `direct` / `relay` 状态，日志使用
 `crossgram_download_transport=<direct|relay>` 标记。
 
+`features/server-e2e` 是默认关闭的测试 feature。只有显式运行
+`yarn e2e:source` 或 Android E2E workflow 时才会注入 debug Activity、测试签名放行和
+直接业务函数入口；常规 `patch:source` 与 release workflow 不会应用它。详细方法、命令与
+验收口径见 [Android 服务器直接函数 E2E](docs/android-server-direct-e2e.md)。E2E APK 只供
+受控 AVD 使用，不应安装到生产设备或对外分发。
+
 ## 已支持的上游
 
 | 客户端 | 上游 | 登录页入口 |
