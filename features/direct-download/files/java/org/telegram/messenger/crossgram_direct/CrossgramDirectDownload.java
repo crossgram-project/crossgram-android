@@ -18,10 +18,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class CrossgramDirectDownload {
     public static final String TRANSPORT_DIRECT = "direct";
     public static final String TRANSPORT_RELAY = "relay";
+    public static final String TRANSPORT_RESOLVING = "resolving";
 
     private static final int GET_FILE_URL_CONSTRUCTOR = 0x7520f6ea;
     private static final AtomicInteger NEXT_HTTP_TOKEN = new AtomicInteger(-1);
     private static final ConcurrentHashMap<Integer, HttpURLConnection[]> HTTP_REQUESTS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, String> REPORTED_TRANSPORTS = new ConcurrentHashMap<>();
 
     public interface ResolveCallback {
         void onResult(ResolvedUrl result, String error);
@@ -48,10 +50,33 @@ public final class CrossgramDirectDownload {
                 && !(location instanceof TLRPC.TL_inputPhotoFileLocation)) {
             return false;
         }
-        byte[] reference = location.file_reference;
+        return supportsFileReference(location.file_reference);
+    }
+
+    /** Returns true for bridge-backed photos/documents before an InputFileLocation is constructed. */
+    public static boolean supports(Object parentObject) {
+        if (parentObject instanceof TLRPC.Photo) {
+            return supportsFileReference(((TLRPC.Photo) parentObject).file_reference);
+        }
+        if (parentObject instanceof TLRPC.Document) {
+            return supportsFileReference(((TLRPC.Document) parentObject).file_reference);
+        }
+        return false;
+    }
+
+    private static boolean supportsFileReference(byte[] reference) {
         if (reference == null) return false;
         String value = new String(reference, StandardCharsets.UTF_8);
         return value.matches("bridge-media:[1-9][0-9]*");
+    }
+
+    /** Clears a stale result and exposes URL resolution to the message-cell indicator. */
+    public static void begin(String fileName) {
+        setReportedTransport(fileName, TRANSPORT_RESOLVING);
+    }
+
+    public static String getReportedTransport(String fileName) {
+        return fileName == null ? null : REPORTED_TRANSPORTS.get(fileName);
     }
 
     public static void resolve(int account, int dcId, TLRPC.InputFileLocation location, ResolveCallback callback) {
@@ -121,7 +146,16 @@ public final class CrossgramDirectDownload {
     }
 
     public static void report(String fileName, String transport, String reason) {
+        setReportedTransport(fileName, transport);
         FileLog.d("crossgram_download_transport=" + transport + " file=" + fileName + " reason=" + reason);
+    }
+
+    private static void setReportedTransport(String fileName, String transport) {
+        if (fileName == null || fileName.isEmpty()) return;
+        if (REPORTED_TRANSPORTS.size() >= 512 && !REPORTED_TRANSPORTS.containsKey(fileName)) {
+            REPORTED_TRANSPORTS.clear();
+        }
+        REPORTED_TRANSPORTS.put(fileName, transport);
     }
 
     private static final class GetFileUrl extends TLObject {

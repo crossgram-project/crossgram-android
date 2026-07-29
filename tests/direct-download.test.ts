@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { applyDirectDownload, patchFileLoadOperation } from "../features/direct-download/patch.js";
+import {
+  applyDirectDownload,
+  patchChatMessageCell,
+  patchFileLoadOperation,
+} from "../features/direct-download/patch.js";
 import { getUpstream } from "../src/upstreams.js";
 
 const fixture = `package org.telegram.messenger;
@@ -54,10 +58,43 @@ public class FileLoadOperation {
 }
 `;
 
+const messageCellFixture = `package org.telegram.ui.Cells;
+
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Typeface;
+import android.text.TextPaint;
+
+import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.FileLoader;
+import org.telegram.messenger.FileLog;
+import org.telegram.messenger.ImageLocation;
+import org.telegram.messenger.MessageObject;
+import org.telegram.tgnet.TLRPC;
+
+public class ChatMessageCell {
+    void bindPhoto() {
+        photoImage.setImage(ImageLocation.getForObject(currentPhotoObject, photoParentObject), currentPhotoFilter, ImageLocation.getForObject(currentPhotoObjectThumb, photoParentObject), currentPhotoFilterThumb, currentPhotoObjectThumbStripped, currentPhotoObject.size, null, currentMessageObject, cacheType);
+    }
+
+    void pressPhoto() {
+        photoImage.setImage(ImageLocation.getForObject(currentPhotoObject, photoParentObject), currentPhotoFilter, ImageLocation.getForObject(currentPhotoObjectThumb, photoParentObject), currentPhotoFilterThumb, currentPhotoObjectThumbStripped, currentPhotoObject.size, null, currentMessageObject, cacheType);
+    }
+
+    private Paint clipPaint;
+    protected void drawRadialProgress(Canvas canvas) {
+        radialProgress.draw(canvas);
+    }
+}
+`;
+
 describe("Android direct-download patch", () => {
   it("injects URL resolution, HTTP chunks, fallback, cancellation, and observability idempotently", () => {
     const patched = patchFileLoadOperation(fixture);
     expect(patched).toContain("CrossgramDirectDownload.resolve(currentAccount, datacenterId, location");
+    expect(patched).toContain("CrossgramDirectDownload.begin(fileName);");
     expect(patched).toContain("CrossgramDirectDownload.loadRange(");
     expect(patched).toContain("buffer.position(0);");
     expect(patched).toContain("request = null;");
@@ -68,12 +105,28 @@ describe("Android direct-download patch", () => {
     expect(patchFileLoadOperation(patched)).toBe(patched);
   });
 
+  it("uses stripped previews while Crossgram photos load and draws a visible transport badge", () => {
+    const patched = patchChatMessageCell(messageCellFixture);
+    expect(patched).toContain("CrossgramDirectDownload.supports(parentObject)");
+    expect(patched).toContain("getCrossgramLoadingThumbLocation(photoParentObject)");
+    expect(patched).not.toContain(
+      "ImageLocation.getForObject(currentPhotoObjectThumb, photoParentObject), currentPhotoFilterThumb, currentPhotoObjectThumbStripped, currentPhotoObject.size",
+    );
+    expect(patched).toContain('label = "直连";');
+    expect(patched).toContain('label = "中转";');
+    expect(patched).toContain("drawCrossgramTransportBadge(canvas);");
+    expect(patched).toContain('FileLog.d("crossgram_transport_badge=" + transport');
+    expect(patchChatMessageCell(patched)).toBe(patched);
+  });
+
   it("keeps the RPC constructor and transport diagnostic marker stable", async () => {
     const runtime = await readFile(path.resolve(
       "features/direct-download/files/java/org/telegram/messenger/crossgram_direct/CrossgramDirectDownload.java",
     ), "utf8");
     expect(runtime).toContain("GET_FILE_URL_CONSTRUCTOR = 0x7520f6ea");
     expect(runtime).toContain('"crossgram_download_transport=" + transport');
+    expect(runtime).toContain("REPORTED_TRANSPORTS");
+    expect(runtime).toContain("supports(Object parentObject)");
   });
 
   it("migrates an already-patched direct download buffer to a readable position", () => {
@@ -87,6 +140,17 @@ describe("Android direct-download patch", () => {
     );
   });
 
+  it("migrates an already-patched operation to publish the resolving state", () => {
+    const previous = patchFileLoadOperation(fixture).replace(
+      "                CrossgramDirectDownload.begin(fileName);\n",
+      "",
+    );
+
+    expect(patchFileLoadOperation(previous)).toContain(
+      "crossgramDirectResolving = true;\n                CrossgramDirectDownload.begin(fileName);",
+    );
+  });
+
   it("installs both Java runtime files from the packaged template tree", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "crossgram-direct-install-"));
     const operation = path.join(root,
@@ -94,6 +158,10 @@ describe("Android direct-download patch", () => {
     try {
       await mkdir(path.dirname(operation), { recursive: true });
       await writeFile(operation, fixture, "utf8");
+      const messageCell = path.join(root,
+        "TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java");
+      await mkdir(path.dirname(messageCell), { recursive: true });
+      await writeFile(messageCell, messageCellFixture, "utf8");
       const changed = await applyDirectDownload(root, getUpstream("telegram"));
       expect(changed).toContain(path.join(
         "TMessagesProj/src/main/java/org/telegram/messenger/crossgram_direct/CrossgramDirectHttp.java",
@@ -101,6 +169,9 @@ describe("Android direct-download patch", () => {
       expect(await readFile(path.join(path.dirname(operation),
         "crossgram_direct/CrossgramDirectDownload.java"), "utf8"))
         .toContain("GET_FILE_URL_CONSTRUCTOR = 0x7520f6ea");
+      expect(changed).toContain(
+        "TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java",
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
