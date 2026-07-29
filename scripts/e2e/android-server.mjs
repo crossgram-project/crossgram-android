@@ -26,6 +26,10 @@ function inspectSql(relayRoot, sql) {
   return JSON.parse(run(process.execPath, [inspector, "sql", sql], { cwd: relayRoot }));
 }
 
+function sqlString(value) {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
 function loginCode(secret, now = Date.now()) {
   const counter = Math.floor(now / 1000 / 30);
   const input = Buffer.alloc(8);
@@ -67,6 +71,19 @@ async function waitFor(marker, timeoutMs = 45_000) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timed out waiting for Android marker: ${marker}\n${logs()}`);
+}
+
+async function waitForRelayMessage(relayRoot, message, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const rows = inspectSql(
+      relayRoot,
+      `SELECT id, primaryPlatformMessageId FROM mtproto_im_message WHERE text=${sqlString(message)} AND outgoing=1 ORDER BY id DESC LIMIT 1`,
+    );
+    if (rows.length) return rows[0];
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("Timed out waiting for relay to persist the outgoing Android message");
 }
 
 async function dispatch(component, action, command, extras = []) {
@@ -132,21 +149,33 @@ async function main() {
     if (!conversation) {
       if (command !== "all") throw new Error("--conversation is required for chat/send");
     } else {
-      const peerId = stableId(`peer:${conversation}`);
+      const peerType = option("peer-type", "chat");
+      const explicitPeerId = option("peer-id");
+      let peerId = explicitPeerId ? Number(explicitPeerId) : stableId(`peer:${conversation}`);
+      if (!explicitPeerId && peerType === "user") {
+        const [user] = inspectSql(
+          relayRoot,
+          `SELECT id FROM mtproto_im_user WHERE platformUserId=${sqlString(conversation)} ORDER BY id LIMIT 1`,
+        );
+        if (!user) throw new Error(`Relay has no user mapping for direct conversation: ${conversation}`);
+        peerId = user.id;
+      }
       await dispatch(launchComponent, e2eAction, "chat", [
-        ["--es", "crossgram_e2e_peer_type", "chat"],
+        ["--es", "crossgram_e2e_peer_type", peerType],
         ["--el", "crossgram_e2e_peer_id", peerId],
       ]);
       await waitFor("page_opened:chat");
 
       const message = option("message");
+      if (command === "send" && !message) throw new Error("--message is required for send");
       if ((command === "send" || message) && message) {
         await dispatch(launchComponent, e2eAction, "send", [
-          ["--es", "crossgram_e2e_peer_type", "chat"],
+          ["--es", "crossgram_e2e_peer_type", peerType],
           ["--el", "crossgram_e2e_peer_id", peerId],
-          ["--es", "crossgram_e2e_message", message],
+          ["--es", "crossgram_e2e_message_base64", Buffer.from(message).toString("base64")],
         ]);
         await waitFor("function_called:sendMessage");
+        await waitForRelayMessage(relayRoot, message);
       }
     }
   }

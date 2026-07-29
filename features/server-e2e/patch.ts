@@ -61,6 +61,14 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
     file,
     "add direct page and function dispatcher",
   );
+  source = replaceRegexOnce(
+    source,
+    /[ \t]*String message = intent\.getStringExtra\("crossgram_e2e_message"\);/,
+    `            String encodedMessage = intent.getStringExtra("crossgram_e2e_message_base64");\n            String message = encodedMessage == null\n                    ? intent.getStringExtra("crossgram_e2e_message")\n                    : new String(android.util.Base64.decode(encodedMessage, android.util.Base64.DEFAULT),\n                            java.nio.charset.StandardCharsets.UTF_8);`,
+    "crossgram_e2e_message_base64",
+    file,
+    "encode adb text message extras safely",
+  );
   source = editDeclarationBody(
     source,
     /private\s+boolean\s+handleIntent\(Intent intent, boolean isNew, boolean restore, boolean fromPassword, Browser\.Progress progress, boolean rebuildFragments, boolean openedTelegram\)\s*\{/,

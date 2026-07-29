@@ -42,8 +42,23 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("new DialogsActivity(new Bundle())");
     expect(patched).toContain("new ChatActivity(args)");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendMessage");
+    expect(patched).toContain("crossgram_e2e_message_base64");
     expect(patched).toContain('android.util.Log.i("CrossgramE2E", "state activated="');
     expect(patched).toContain("if (handleCrossgramE2eIntent(intent))");
+    expect(patchLaunchE2eSource(patched, "LaunchActivity.java", method)).toBe(patched);
+  });
+
+  it("upgrades an already-installed driver to Base64-safe text extras", async () => {
+    const method = await readFile(path.join(featureRoot, "java-snippets/launch-method.java"), "utf8");
+    const legacyMethod = method.replace(
+      /            String encodedMessage[\s\S]*?java\.nio\.charset\.StandardCharsets\.UTF_8\);/,
+      '            String message = intent.getStringExtra("crossgram_e2e_message");',
+    );
+    const source = `public class LaunchActivity {\n${legacyMethod}\n\n    private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword) { return false; }\n    private boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword, Browser.Progress progress, boolean rebuildFragments, boolean openedTelegram) { return false; }\n}`;
+
+    const patched = patchLaunchE2eSource(source, "LaunchActivity.java", method);
+    expect(patched).toContain("crossgram_e2e_message_base64");
+    expect(patched).not.toContain('String message = intent.getStringExtra("crossgram_e2e_message");');
     expect(patchLaunchE2eSource(patched, "LaunchActivity.java", method)).toBe(patched);
   });
 
@@ -69,5 +84,9 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('dispatch(launchComponent, e2eAction, "state")');
     expect(runner).not.toContain('dispatch(component, "state")');
     expect(runner).toContain('if (command === "state")');
+    expect(runner).toContain('Buffer.from(message).toString("base64")');
+    expect(runner).toContain("waitForRelayMessage(relayRoot, message)");
+    expect(runner).toContain('if (!explicitPeerId && peerType === "user")');
+    expect(runner).toContain('throw new Error("--message is required for send")');
   });
 });
