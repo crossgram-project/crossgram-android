@@ -34,6 +34,9 @@ describe("build scripts", () => {
     expect(source).toContain('mercurygram)');
     expect(source).toContain('node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"');
     expect(source).toContain('EXTRA_GRADLE_ARGS+=("-PMG_BUILD_TAG=$VERSION")');
+    expect(source).toContain('EXTRA_GRADLE_ARGS+=("--no-parallel")');
+    expect(source).toContain("GRADLE_MAX_WORKERS=1");
+    expect(source).toContain('--max-workers="$GRADLE_MAX_WORKERS"');
     expect(source).toContain('ORG_GRADLE_PROJECT_RELEASE_KEYSTORE_FILE');
     expect(source).toContain('NATIVE_DEPS_NDK_DIR');
   });

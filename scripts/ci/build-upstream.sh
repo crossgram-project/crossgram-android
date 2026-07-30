@@ -99,9 +99,17 @@ export ORG_GRADLE_PROJECT_RELEASE_KEYSTORE_FILE="$SOURCE_ROOT/TMessagesProj/conf
 export COMPILE_NATIVE=1
 
 EXTRA_GRADLE_ARGS=()
+GRADLE_MAX_WORKERS=2
 case "$CLIENT" in
   mercurygram)
     EXTRA_GRADLE_ARGS+=("-PMG_BUILD_TAG=$VERSION")
+    ;;
+  forkgram)
+    # Forkgram does not declare buildNativeDeps as a dependency of every JNI
+    # merge task. Serial Gradle execution prevents the merger from scanning
+    # dav1d temporary objects while prepare.py is still replacing them.
+    EXTRA_GRADLE_ARGS+=("--no-parallel")
+    GRADLE_MAX_WORKERS=1
     ;;
 esac
 
@@ -124,7 +132,7 @@ for brand in qq wechat wecom dingtalk discord; do
     find "$apk_output" -mindepth 1 -delete
   done < <(find "$SOURCE_ROOT" -type d -path '*/build/outputs/apk' -print0)
   ./gradlew "$GRADLE_TASK" "${EXTRA_GRADLE_ARGS[@]}" \
-    --build-cache --no-configuration-cache --max-workers=2
+    --build-cache --no-configuration-cache --max-workers="$GRADLE_MAX_WORKERS"
 
   found=0
   while IFS= read -r -d '' apk; do
