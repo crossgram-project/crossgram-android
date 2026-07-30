@@ -432,11 +432,20 @@ async function main() {
       const peerType = option("peer-type", "chat");
       const explicitPeerId = option("peer-id");
       const peerId = resolvePeer(relayRoot, conversation, peerType, explicitPeerId);
-      await dispatch(launchComponent, e2eAction, "chat", [
-        ["--es", "crossgram_e2e_peer_type", peerType],
-        ["--el", "crossgram_e2e_peer_id", peerId],
-      ]);
-      await waitFor("page_opened:chat");
+      if (command === "draft") {
+        // An active ChatActivity immediately persists its empty composer after
+        // receiving updateDraftMessage, which clears the draft that this E2E
+        // just saved. Move to DialogsActivity first so the real Android draft
+        // controller can be observed without an active composer racing it.
+        await dispatch(launchComponent, e2eAction, "dialogs");
+        await waitFor("page_opened:dialogs");
+      } else {
+        await dispatch(launchComponent, e2eAction, "chat", [
+          ["--es", "crossgram_e2e_peer_type", peerType],
+          ["--el", "crossgram_e2e_peer_id", peerId],
+        ]);
+        await waitFor("page_opened:chat");
+      }
 
       if (command === "send" || (command === "all" && option("message"))) {
         const message = option("message");
