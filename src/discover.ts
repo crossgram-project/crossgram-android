@@ -34,6 +34,7 @@ export interface DiscoveredUpstream {
   releaseVariants: readonly ReleaseVariant[];
   ndkVersion: string;
   nativeDepsNdkVersion: string;
+  tdlibNdkVersion: string;
 }
 
 export function variantsForClient(id: string): readonly ReleaseVariant[] {
@@ -59,6 +60,7 @@ export async function discoverUpstreams(): Promise<DiscoveredUpstream[]> {
       releaseVariants: upstream.releaseVariants,
       ndkVersion: upstream.ndkVersion,
       nativeDepsNdkVersion: upstream.nativeDepsNdkVersion ?? "",
+      tdlibNdkVersion: upstream.tdlibNdkVersion ?? "",
     };
   }));
 }

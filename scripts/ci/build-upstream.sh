@@ -39,6 +39,7 @@ esac
 cd "$PATCHER_ROOT"
 corepack yarn run patch:source --client "$CLIENT" --source "$SOURCE_ROOT"
 corepack yarn run prepare-build --client "$CLIENT" --source "$SOURCE_ROOT" --variant "$VARIANT"
+node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"
 
 case "$VARIANT" in
   armAll) ABIS=(armeabi-v7a arm64-v8a) ;;
@@ -98,24 +99,17 @@ export ORG_GRADLE_PROJECT_RELEASE_KEYSTORE_FILE="$SOURCE_ROOT/TMessagesProj/conf
 export COMPILE_NATIVE=1
 
 EXTRA_GRADLE_ARGS=()
+GRADLE_MAX_WORKERS=2
 case "$CLIENT" in
   mercurygram)
-    : "${CROSSGRAM_TELEGRAM_API_ID:?missing Telegram API ID secret}"
-    : "${CROSSGRAM_TELEGRAM_API_HASH:?missing Telegram API hash secret}"
-    printf 'APP_ID = %s\nAPP_HASH = %s\n' \
-      "$CROSSGRAM_TELEGRAM_API_ID" "$CROSSGRAM_TELEGRAM_API_HASH" \
-      > "$SOURCE_ROOT/API_KEYS"
     EXTRA_GRADLE_ARGS+=("-PMG_BUILD_TAG=$VERSION")
     ;;
   forkgram)
-    : "${CROSSGRAM_TELEGRAM_API_ID:?missing Telegram API ID secret}"
-    : "${CROSSGRAM_TELEGRAM_API_HASH:?missing Telegram API hash secret}"
-    export ORG_GRADLE_PROJECT_APP_ID="$CROSSGRAM_TELEGRAM_API_ID"
-    export ORG_GRADLE_PROJECT_APP_HASH="$CROSSGRAM_TELEGRAM_API_HASH"
-    EXTRA_GRADLE_ARGS+=(
-      "-PAPP_ID=$CROSSGRAM_TELEGRAM_API_ID"
-      "-PAPP_HASH=$CROSSGRAM_TELEGRAM_API_HASH"
-    )
+    # Forkgram does not declare buildNativeDeps as a dependency of every JNI
+    # merge task. Serial Gradle execution prevents the merger from scanning
+    # dav1d temporary objects while prepare.py is still replacing them.
+    EXTRA_GRADLE_ARGS+=("--no-parallel")
+    GRADLE_MAX_WORKERS=1
     ;;
 esac
 
@@ -138,7 +132,7 @@ for brand in qq wechat wecom dingtalk discord; do
     find "$apk_output" -mindepth 1 -delete
   done < <(find "$SOURCE_ROOT" -type d -path '*/build/outputs/apk' -print0)
   ./gradlew "$GRADLE_TASK" "${EXTRA_GRADLE_ARGS[@]}" \
-    --build-cache --no-configuration-cache --max-workers=2
+    --build-cache --no-configuration-cache --max-workers="$GRADLE_MAX_WORKERS"
 
   found=0
   while IFS= read -r -d '' apk; do

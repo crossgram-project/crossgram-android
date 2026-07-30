@@ -27,7 +27,7 @@ Crossgram 在 Telegram Android 及其第三方客户端源码上语义地注入�
 | Mercurygram | `Mercurygram/Mercurygram` | 登录页服务器按钮 |
 | Forkgram | `forkgram/TelegramAndroid` | 登录页服务器按钮 |
 
-patch 保留每个上游原有的 API ID/hash 获取逻辑。Nagram、Nnngram 自带的 API 凭据切换功能也不会被覆盖。
+发布构建默认使用 Crossgram 项目的 Telegram API 身份；`CROSSGRAM_TELEGRAM_API_ID` 与 `CROSSGRAM_TELEGRAM_API_HASH` 可成对覆盖，缺少任一项都会明确失败。Nagram、Nnngram 自带的运行时 API 凭据切换功能仍会保留。
 
 Nnngram 与 Nullgram 上游没有公开其私有 `google-services.json`；品牌步骤会生成明确标记的本地占位配置，并关闭私有 Crashlytics 上传。Mercurygram/Forkgram 提交的 Firebase 配置只覆盖 Telegram 官方包名，因此 Crossgram 同样为品牌包生成占位配置。这些版本可以构建，但没有上游 Firebase 推送/崩溃上传能力。Telegram/Nagram 发布了匹配配置时，patch 会为新的 `.crossgram.<channel>` 包名添加 client。Telegram API ID/hash 与 Firebase 配置是两套独立凭据。
 
@@ -113,9 +113,9 @@ release 签名使用以下 Actions Secrets：
 - `CROSSGRAM_KEYSTORE_PASSWORD`
 - `CROSSGRAM_KEY_ALIAS`
 - `CROSSGRAM_KEY_PASSWORD`
-- `CROSSGRAM_TELEGRAM_API_ID`
-- `CROSSGRAM_TELEGRAM_API_HASH`
+- `CROSSGRAM_TELEGRAM_API_ID`（可选）
+- `CROSSGRAM_TELEGRAM_API_HASH`（可选）
 
-后两项由 Mercurygram 与 Forkgram 构建使用，应填写从 Telegram 官方申请的 API ID/hash；不要使用 Telegram 官方客户端或其他第三方客户端的私有凭据。
+可选的 Telegram API ID/hash 必须成对设置，用于覆盖仓库内置的 Crossgram 默认身份。
 
 本地 keystore 和凭据位于被忽略的 `artifacts/` 目录，不应提交到 Git。

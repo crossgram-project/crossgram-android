@@ -61,25 +61,19 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Validate Telegram API credentials
-        if: ${{ matrix.id == 'mercurygram' || matrix.id == 'forkgram' }}
-        env:
-          CROSSGRAM_TELEGRAM_API_ID: ${{ secrets.CROSSGRAM_TELEGRAM_API_ID }}
-          CROSSGRAM_TELEGRAM_API_HASH: ${{ secrets.CROSSGRAM_TELEGRAM_API_HASH }}
-        run: |
-          if [[ -z "$CROSSGRAM_TELEGRAM_API_ID" || -z "$CROSSGRAM_TELEGRAM_API_HASH" ]]; then
-            echo "::error::Mercurygram/Forkgram require CROSSGRAM_TELEGRAM_API_ID and CROSSGRAM_TELEGRAM_API_HASH repository secrets."
-            exit 1
-          fi
       - uses: android-actions/setup-android@v4
       - name: Install client NDK
         env:
           NDK_VERSION: ${{ matrix.ndkVersion }}
           NATIVE_DEPS_NDK_VERSION: ${{ matrix.nativeDepsNdkVersion }}
+          TDLIB_NDK_VERSION: ${{ matrix.tdlibNdkVersion }}
         run: |
           packages=("ndk;$NDK_VERSION" "cmake;3.22.1")
           if [[ -n "$NATIVE_DEPS_NDK_VERSION" ]]; then
             packages+=("ndk;$NATIVE_DEPS_NDK_VERSION")
+          fi
+          if [[ -n "$TDLIB_NDK_VERSION" ]]; then
+            packages+=("ndk;$TDLIB_NDK_VERSION")
           fi
           (yes || true) | sdkmanager --install "${packages[@]}"
       - uses: actions/setup-java@v5
