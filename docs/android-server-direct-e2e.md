@@ -95,6 +95,7 @@ Ninja，不能混用 MSYS Ninja。此外，`TMessagesProj/src/main/libs/x86_64/l
 yarn e2e:android-server --command login
 yarn e2e:android-server --command state
 yarn e2e:android-server --command dialogs
+yarn e2e:android-server --command dialog-update --conversation 1084013940
 yarn e2e:android-server --command stickers --expect-title "QQ 收藏表情"
 yarn e2e:android-server --command sticker-install --provider-id <provider-id> --pack-id <pack-id>
 yarn e2e:android-server --command chat --conversation 479613101
@@ -142,6 +143,26 @@ yarn e2e:android-server --command read --peer-type user --conversation <platform
 `SendMessagesHelper.sendReaction/sendMessage`、`SendMessagesHelper.editMessage`、
 `MessagesController.deleteMessages/markDialogAsRead`。runner 还会用只读 relay 数据断言
 reply metadata、reaction、草稿、转发、编辑 replacement 与删除 tombstone。
+
+`reaction` 不再直接构造一个只有单项的 RPC。debug driver 会先调用真实
+`MessageObject.selectReaction`，再把 `getChoosenReactions()` 交给
+`SendMessagesHelper.sendReaction(..., addToRecent=true)`。服务端确认后测试会强制停止
+Android 进程并重新加载目标消息，要求：刚点击的 reaction 是气泡布局第一项、
+`chosen_order` 已持久化、recent reactions 第一项一致，以及消息涉及的所有 custom emoji
+document 都能通过 `messages.getCustomEmojiDocuments` 重新取回。这同时覆盖“偶发加载不出”
+和“点击后不排最前”的冷启动回归。
+
+会话列表实时刷新使用 QQNT E2E 明确允许的安全群：
+
+```bash
+yarn e2e:android-server --command dialog-update --conversation 1084013940
+```
+
+该命令先停留在真实 `DialogsActivity` 并记录目标 dialog 当前 top message，然后通过
+宿主机 QQNT bridge 发送唯一 marker。测试全过程不会打开 `ChatActivity`；只有 Android
+收到 MTProto update、`MessagesController.dialogMessage` 在会话列表页面直接出现新消息，
+且 Telegram message id 与 relay 持久化投影一致时才通过。可用 `--qqnt-url` 覆盖默认的
+`http://127.0.0.1:18767/v1`。
 
 分页时把上一页 `history_loaded` 的 `min_id` 作为下一次的 `--max-id`。该命令不会打开或
 滚动 UI，而是在 Android 进程内注册 `NotificationCenter.messagesDidLoad` 后直接调用

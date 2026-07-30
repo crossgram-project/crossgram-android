@@ -17,6 +17,48 @@
             android.util.Log.i("CrossgramE2E", "page_opened:dialogs");
             return true;
         }
+        if ("dialog-watch".equals(command)) {
+            long peerId = intent.getLongExtra("crossgram_e2e_peer_id", 0);
+            String peerType = intent.getStringExtra("crossgram_e2e_peer_type");
+            long dialogId = "user".equals(peerType) ? peerId : -peerId;
+            String encodedMarker = intent.getStringExtra("crossgram_e2e_message_base64");
+            String marker = new String(android.util.Base64.decode(encodedMarker, android.util.Base64.DEFAULT),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            presentFragment(new DialogsActivity(new Bundle()));
+            MessagesController messagesController = MessagesController.getInstance(currentAccount);
+            java.util.ArrayList<MessageObject> initialMessages = messagesController.dialogMessage.get(dialogId);
+            int initialId = initialMessages == null || initialMessages.isEmpty() ? 0 : initialMessages.get(0).getId();
+            long startedAt = android.os.SystemClock.elapsedRealtime();
+            final int[] attempts = { 0 };
+            final Runnable[] inspect = new Runnable[1];
+            inspect[0] = () -> {
+                BaseFragment last = getActionBarLayout().getLastFragment();
+                if (!(last instanceof DialogsActivity)) {
+                    android.util.Log.e("CrossgramE2E", "dialog_update_failed reason=chat_opened");
+                    return;
+                }
+                java.util.ArrayList<MessageObject> messages = messagesController.dialogMessage.get(dialogId);
+                if (messages != null) {
+                    for (MessageObject messageObject : messages) {
+                        String text = messageObject.messageText == null ? "" : messageObject.messageText.toString();
+                        if (text.contains(marker)) {
+                            android.util.Log.i("CrossgramE2E", "dialog_updated_without_chat message_id="
+                                    + messageObject.getId() + " initial_id=" + initialId + " elapsed_ms="
+                                    + (android.os.SystemClock.elapsedRealtime() - startedAt));
+                            return;
+                        }
+                    }
+                }
+                if (++attempts[0] >= 240) {
+                    android.util.Log.e("CrossgramE2E", "dialog_update_failed reason=timeout initial_id=" + initialId);
+                    return;
+                }
+                AndroidUtilities.runOnUIThread(inspect[0], 250);
+            };
+            AndroidUtilities.runOnUIThread(inspect[0], 250);
+            android.util.Log.i("CrossgramE2E", "dialog_watch_ready initial_id=" + initialId);
+            return true;
+        }
         if ("chat".equals(command)) {
             long peerId = intent.getLongExtra("crossgram_e2e_peer_id", 0);
             String peerType = intent.getStringExtra("crossgram_e2e_peer_type");
@@ -249,14 +291,23 @@
             return runCrossgramE2eWithMessage(intent, "reaction", target -> {
                 org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction visible =
                         org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction.fromEmojicon(reaction);
+                boolean added = target.selectReaction(visible, false, false);
                 java.util.ArrayList<org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction> reactions =
-                        new java.util.ArrayList<>();
-                reactions.add(visible);
+                        target.getChoosenReactions();
                 SendMessagesHelper.getInstance(currentAccount).sendReaction(
-                        target, reactions, visible, false, false, getActionBarLayout().getLastFragment(),
-                        () -> android.util.Log.i("CrossgramE2E", "reaction_applied target_id=" + target.getId()));
-                android.util.Log.i("CrossgramE2E", "function_called:sendReaction target_id=" + target.getId());
+                        target, reactions, visible, false, true, getActionBarLayout().getLastFragment(),
+                        () -> {
+                            inspectCrossgramE2eReaction(target, reaction);
+                            android.util.Log.i("CrossgramE2E", "reaction_applied target_id=" + target.getId());
+                        });
+                android.util.Log.i("CrossgramE2E", "function_called:sendReaction target_id=" + target.getId()
+                        + " selected_count=" + reactions.size() + " added=" + added);
             });
+        }
+        if ("reaction-inspect".equals(command)) {
+            String reaction = intent.getStringExtra("crossgram_e2e_reaction");
+            return runCrossgramE2eWithMessage(intent, "reaction_inspect", target ->
+                    inspectCrossgramE2eReaction(target, reaction));
         }
         if ("send".equals(command)) {
             long peerId = intent.getLongExtra("crossgram_e2e_peer_id", 0);
@@ -300,6 +351,84 @@
         }
         android.util.Log.e("CrossgramE2E", "unknown_command");
         return true;
+    }
+
+    private String crossgramE2eReactionKey(TLRPC.Reaction reaction) {
+        if (reaction instanceof TLRPC.TL_reactionEmoji) {
+            return ((TLRPC.TL_reactionEmoji) reaction).emoticon;
+        }
+        if (reaction instanceof TLRPC.TL_reactionCustomEmoji) {
+            return Long.toString(((TLRPC.TL_reactionCustomEmoji) reaction).document_id);
+        }
+        if (reaction instanceof TLRPC.TL_reactionPaid) {
+            return "stars";
+        }
+        return "unknown";
+    }
+
+    private void inspectCrossgramE2eReaction(MessageObject target, String expected) {
+        org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble layout =
+                new org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble(
+                        new android.view.View(ApplicationLoader.applicationContext));
+        layout.setMessage(target, false, false, null);
+        String first = layout.reactionButtons.isEmpty() ? "none" : layout.reactionButtons.get(0).key;
+        int selected = 0;
+        int expectedOrder = 0;
+        java.util.ArrayList<Long> customDocumentIds = new java.util.ArrayList<>();
+        for (org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.ReactionButton button
+                : layout.reactionButtons) {
+            if (button.choosen) selected++;
+            if (expected.equals(button.key)) expectedOrder = button.choosenOrder;
+            if (button.reaction instanceof TLRPC.TL_reactionCustomEmoji) {
+                customDocumentIds.add(((TLRPC.TL_reactionCustomEmoji) button.reaction).document_id);
+            }
+        }
+        if (!expected.equals(first) || expectedOrder <= 0) {
+            android.util.Log.e("CrossgramE2E", "reaction_inspect_failed reason=order first=" + first
+                    + " expected=" + expected + " expected_order=" + expectedOrder);
+            return;
+        }
+        android.util.Log.i("CrossgramE2E", "reaction_layout_ready first=" + first
+                + " selected=" + selected + " buttons=" + layout.reactionButtons.size()
+                + " expected_order=" + expectedOrder);
+
+        if (customDocumentIds.isEmpty()) {
+            android.util.Log.i("CrossgramE2E", "reaction_documents_loaded requested=0 loaded=0");
+        } else {
+            TLRPC.TL_messages_getCustomEmojiDocuments request = new TLRPC.TL_messages_getCustomEmojiDocuments();
+            request.document_id = customDocumentIds;
+            ConnectionsManager.getInstance(currentAccount).sendRequest(request, (response, error) -> {
+                int loaded = response instanceof Vector ? ((Vector) response).objects.size() : 0;
+                if (error != null || loaded != customDocumentIds.size()) {
+                    android.util.Log.e("CrossgramE2E", "reaction_inspect_failed reason=documents requested="
+                            + customDocumentIds.size() + " loaded=" + loaded);
+                } else {
+                    android.util.Log.i("CrossgramE2E", "reaction_documents_loaded requested="
+                            + customDocumentIds.size() + " loaded=" + loaded);
+                }
+            });
+        }
+
+        MediaDataController mediaDataController = MediaDataController.getInstance(currentAccount);
+        mediaDataController.loadRecentAndTopReactions(true);
+        final int[] attempts = { 0 };
+        final Runnable[] inspectRecent = new Runnable[1];
+        inspectRecent[0] = () -> {
+            java.util.ArrayList<TLRPC.Reaction> recent = mediaDataController.getRecentReactions();
+            String recentFirst = recent.isEmpty() ? "none" : crossgramE2eReactionKey(recent.get(0));
+            if (expected.equals(recentFirst)) {
+                android.util.Log.i("CrossgramE2E", "reaction_recent_ready first=" + recentFirst
+                        + " count=" + recent.size());
+                return;
+            }
+            if (++attempts[0] >= 120) {
+                android.util.Log.e("CrossgramE2E", "reaction_inspect_failed reason=recent first=" + recentFirst
+                        + " expected=" + expected);
+                return;
+            }
+            AndroidUtilities.runOnUIThread(inspectRecent[0], 250);
+        };
+        AndroidUtilities.runOnUIThread(inspectRecent[0], 250);
     }
 
     private boolean runCrossgramE2eHistory(Intent intent, int hydrationAttempt) {

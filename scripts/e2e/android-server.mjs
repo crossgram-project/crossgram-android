@@ -216,6 +216,24 @@ async function waitForMtprotoRequest(relayRoot, baselineId, method, accept, time
   throw new Error(`Timed out waiting for Android MTProto request: ${method}`);
 }
 
+async function sendQqntMessage(endpoint, conversationId, message) {
+  const manifest = Buffer.from(JSON.stringify({ conversationId, text: message })).toString("base64url");
+  let response;
+  let body = "";
+  for (let attempt = 0; attempt < 5; attempt++) {
+    response = await fetch(`${endpoint.replace(/\/+$/, "")}/messages`, {
+      method: "POST",
+      headers: { "x-qqnt-manifest": manifest },
+      body: new Uint8Array(),
+    });
+    body = await response.text();
+    if (response.ok || !body.includes("Invalid argument")) break;
+    await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+  }
+  if (!response?.ok) throw new Error(`QQNT bridge send failed: ${response?.status ?? 0} ${body}`);
+  return JSON.parse(body);
+}
+
 function parseTargetIds(value) {
   const ids = String(value ?? "")
     .split(",")
@@ -335,6 +353,48 @@ async function main() {
   if (command === "dialogs" || command === "all") {
     await dispatch(launchComponent, e2eAction, "dialogs");
     await waitFor("page_opened:dialogs");
+  }
+
+  if (command === "dialog-update") {
+    const conversation = option("conversation");
+    if (!conversation) throw new Error("--conversation is required for dialog-update");
+    const peerType = option("peer-type", "chat");
+    const peerId = resolvePeer(relayRoot, conversation, peerType, option("peer-id"));
+    const marker = `[crossgram android dialog e2e] ${new Date().toISOString()} ${Math.random().toString(16).slice(2)}`;
+    await dispatch(launchComponent, e2eAction, "dialog-watch", [
+      ["--es", "crossgram_e2e_peer_type", peerType],
+      ["--el", "crossgram_e2e_peer_id", peerId],
+      ["--es", "crossgram_e2e_message_base64", Buffer.from(marker).toString("base64")],
+    ]);
+    await waitForOutcome("dialog_watch_ready", "dialog_update_failed");
+    const sent = await sendQqntMessage(option("qqnt-url", "http://127.0.0.1:18767/v1"), conversation, marker);
+    const [persisted, output] = await Promise.all([
+      waitForRelaySql(
+        relayRoot,
+        `SELECT m.id, p.tlMessageId FROM mtproto_im_message m
+          JOIN mtproto_tl_message_part p ON p.messageId=m.id
+         WHERE m.text=${sqlString(marker)} AND m.deleted=0
+         ORDER BY m.id DESC, p.ordinal LIMIT 1`,
+        (rows) => rows[0],
+        "externally received dialog message",
+        90_000,
+      ),
+      waitForOutcome("dialog_updated_without_chat", "dialog_update_failed", 90_000),
+    ]);
+    const fields = markerFields(output, "dialog_updated_without_chat");
+    if (Number(fields.message_id) !== Number(persisted.tlMessageId)) {
+      throw new Error(`Android dialog top message mismatch: android=${fields.message_id}, relay=${persisted.tlMessageId}`);
+    }
+    process.stdout.write(`${JSON.stringify({
+      ok: true,
+      command,
+      platformMessageId: sent.id,
+      relayMessageId: persisted.id,
+      tlMessageId: persisted.tlMessageId,
+      initialTlMessageId: Number(fields.initial_id),
+      elapsedMs: Number(fields.elapsed_ms),
+    }, null, 2)}\n`);
+    return;
   }
 
   if (command === "stickers") {
@@ -823,19 +883,60 @@ async function main() {
           );
         } else if (command === "reaction") {
           const reaction = option("reaction", "👍");
+          const baselineId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
           await dispatch(launchComponent, e2eAction, "reaction", [
             ...targetExtras,
             ["--es", "crossgram_e2e_reaction", reaction],
           ]);
           await waitForOutcome("function_called:sendReaction", "reaction_failed");
           await waitForOutcome("reaction_applied", "reaction_failed");
-          await waitForRelaySql(
+          const persisted = await waitForRelaySql(
             relayRoot,
-            `SELECT id FROM mtproto_im_message_reaction
-              WHERE messageId=${Number(target.id)} AND selected=1 AND count > 0 LIMIT 1`,
+            `SELECT id, selectedOrder FROM mtproto_im_message_reaction
+              WHERE messageId=${Number(target.id)} AND selected=1 AND selectedOrder > 0 AND count > 0
+                AND json_extract(definition, '$.presentation.emoticon')=${sqlString(reaction)}
+              LIMIT 1`,
             (rows) => rows[0],
             "selected message reaction",
           );
+          const requestEvidence = await waitForMtprotoRequest(
+            relayRoot,
+            baselineId,
+            "messages.sendReaction",
+            (request) => request.msgId === target.tlMessageId
+              && request.addToRecent === true
+              && request.reaction?.some((item) => item._ === "reactionEmoji" && item.emoticon === reaction),
+          );
+          adb(["shell", "am", "force-stop", packageName]);
+          adb(["logcat", "-c"]);
+          await dispatch(launchComponent, e2eAction, "reaction-inspect", [
+            ...targetExtras,
+            ["--es", "crossgram_e2e_reaction", reaction],
+          ]);
+          const [layoutOutput, documentsOutput, recentOutput] = await Promise.all([
+            waitForOutcome("reaction_layout_ready", "reaction_inspect_failed", 90_000),
+            waitForOutcome("reaction_documents_loaded", "reaction_inspect_failed", 90_000),
+            waitForOutcome("reaction_recent_ready", "reaction_inspect_failed", 90_000),
+          ]);
+          const layout = markerFields(layoutOutput, "reaction_layout_ready");
+          const documents = markerFields(documentsOutput, "reaction_documents_loaded");
+          const recent = markerFields(recentOutput, "reaction_recent_ready");
+          if (layout.first !== reaction || recent.first !== reaction) {
+            throw new Error(`Android reaction order mismatch: layout=${layout.first}, recent=${recent.first}`);
+          }
+          if (Number(documents.loaded) !== Number(documents.requested)) {
+            throw new Error(`Android custom reaction documents missing: ${documents.loaded}/${documents.requested}`);
+          }
+          process.stdout.write(`${JSON.stringify({
+            ok: true,
+            command,
+            reaction,
+            selectedOrder: persisted.selectedOrder,
+            selectedCount: Number(layout.selected),
+            customDocuments: Number(documents.loaded),
+            requestMessageId: requestEvidence.event.messageId,
+          }, null, 2)}\n`);
+          return;
         } else if (command === "forward") {
           const destinationConversation = option("destination-conversation", conversation);
           const destinationPeerType = option("destination-peer-type", peerType);
