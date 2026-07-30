@@ -126,7 +126,7 @@ async function waitForTransport(transport, fileName, timeoutMs = 45_000) {
 function markerFields(output, marker) {
   const line = output.split(/\r?\n/).findLast((entry) => entry.includes(marker));
   if (!line) throw new Error(`Android marker disappeared: ${marker}`);
-  return Object.fromEntries([...line.matchAll(/([a-z_]+)=([^ ]+)/g)].map((match) => [match[1], match[2]]));
+  return Object.fromEntries([...line.matchAll(/([a-z0-9_]+)=([^ ]+)/g)].map((match) => [match[1], match[2]]));
 }
 
 function booleanOption(name, fallback = false) {
@@ -301,6 +301,14 @@ async function main() {
     if (remaining < 8) await new Promise((resolve) => setTimeout(resolve, (remaining + 1) * 1000));
     const code = loginCode(account.totpSecret);
 
+    for (const permission of [
+      "android.permission.READ_PHONE_STATE",
+      "android.permission.CALL_PHONE",
+      "android.permission.READ_CALL_LOG",
+      "android.permission.READ_PHONE_NUMBERS",
+    ]) {
+      adb(["shell", "pm", "grant", packageName, permission]);
+    }
     adb(["shell", "am", "force-stop", packageName]);
     start(dispatcherComponent, [
       ["--es", "crossgram_e2e_command", "login"],
@@ -494,7 +502,11 @@ async function main() {
     }
     const [baseline] = inspectSql(
       relayRoot,
-      "SELECT COALESCE(MAX(id), 0) AS id FROM mtproto_im_message",
+      `SELECT COALESCE(MAX(m.id), 0) AS id,
+              printf('%lld', COALESCE(MAX(CAST(m.primaryPlatformMessageId AS INTEGER)), 0)) AS platformId
+         FROM mtproto_im_message m
+         JOIN mtproto_im_conversation c ON c.id=m.conversationId
+        WHERE c.platformConversationId=${sqlString(destinationConversation)}`,
     );
     const baselineEventId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
 
@@ -526,6 +538,7 @@ async function main() {
          JOIN mtproto_tl_message_part p ON p.messageId=m.id
          JOIN mtproto_im_conversation c ON c.id=m.conversationId
         WHERE m.id > ${Number(baseline.id)} AND m.outgoing=1 AND m.deleted=0
+          AND CAST(m.primaryPlatformMessageId AS INTEGER) > ${BigInt(baseline.platformId)}
           AND c.platformConversationId=${sqlString(destinationConversation)}
         ORDER BY m.id, p.ordinal`,
       (rows) => rows.length === 1 ? rows[0] : undefined,
@@ -552,6 +565,7 @@ async function main() {
          FROM mtproto_im_message m
          JOIN mtproto_im_conversation c ON c.id=m.conversationId
         WHERE m.id > ${Number(baseline.id)} AND m.outgoing=1 AND m.deleted=0
+          AND CAST(m.primaryPlatformMessageId AS INTEGER) > ${BigInt(baseline.platformId)}
           AND c.platformConversationId=${sqlString(destinationConversation)}`,
     );
     if (outputs.length !== 1) {

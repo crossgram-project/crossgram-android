@@ -231,13 +231,17 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('"messages.forwardMessages"');
     expect(runner).toContain("request.randomId?.length === targetIds.length");
     expect(runner).toContain("one persisted QQ merged-forward output");
+    expect(runner).toContain("MAX(CAST(m.primaryPlatformMessageId AS INTEGER))");
+    expect(runner).toContain("CAST(m.primaryPlatformMessageId AS INTEGER) > ${BigInt(baseline.platformId)}");
     expect(runner).toContain("collapsed removed=${targetIds.length - 1}");
     expect(runner).toContain("Android retained a failed merged-forward placeholder");
     expect(runner).toContain('dispatch(launchComponent, e2eAction, "open-merged-forward"');
     expect(runner).toContain("merged_forward_preview_ready");
+    expect(runner).toContain("/([a-z0-9_]+)=([^ ]+)/g");
     expect(runner).toContain("Android preview does not contain source content");
     expect(runner).toContain('"messages.getHistory"');
     expect(runner).toContain('request.peer?._ === "inputPeerChat"');
+    expect(runner).toContain('adb(["shell", "pm", "grant", packageName, permission])');
   });
 
   it("forces each download E2E through FileLoader instead of accepting a cached file", async () => {
