@@ -304,6 +304,12 @@ async function main() {
   const port = Number(option("port", "4430"));
 
   adb(["wait-for-device"]);
+  // A freshly cleared Android 13+ install otherwise opens the notification
+  // permission activity over LaunchActivity. Besides hiding DialogsActivity,
+  // that prompt can leave the debug build in startup ANR long enough for every
+  // MTProto connection to close, turning the dialog live-update check into a
+  // false negative.
+  adb(["shell", "pm", "grant", packageName, "android.permission.POST_NOTIFICATIONS"]);
   adb(["logcat", "-c"]);
 
   if (command === "login" || command === "all") {
