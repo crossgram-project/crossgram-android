@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { createHmac } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +10,7 @@ import {
   findSendRequest,
   latestEventId,
 } from "./mtproto-evidence.mjs";
+import { runCommand } from "./run-command.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const patcherRoot = path.resolve(here, "../..");
@@ -21,7 +21,7 @@ function option(name, fallback) {
 }
 
 function run(program, args, options = {}) {
-  return execFileSync(program, args, { encoding: "utf8", ...options }).trim();
+  return runCommand(program, args, options);
 }
 
 function adb(args) {
