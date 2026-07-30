@@ -27,6 +27,7 @@ describe("Android server E2E source driver", () => {
 
     expect(patched).toContain("phoneView.onNextPressed(null)");
     expect(patched).toContain("views[page].onNextPressed(code)");
+    expect(patched).toContain("public void runCrossgramE2eCode(String code)");
     expect(patched).toContain("maybeRunCrossgramE2eCode(page);");
     expect(patchLoginE2eSource(patched, "LoginActivity.java", methods)).toBe(patched);
   });
@@ -45,6 +46,9 @@ describe("Android server E2E source driver", () => {
     const patched = patchLaunchE2eSource(source, "LaunchActivity.java", method);
 
     expect(patched).toContain("new DialogsActivity(new Bundle())");
+    expect(patched).toContain('"login-phone".equals(command)');
+    expect(patched).toContain('"login-code".equals(command)');
+    expect(patched).toContain("((LoginActivity) last).runCrossgramE2eCode(code)");
     expect(patched).toContain("new ChatActivity(args)");
     expect(patched).toContain('"stickers".equals(command)');
     expect(patched).toContain("loadStickers(MediaDataController.TYPE_IMAGE, false, true, true);");
@@ -70,6 +74,21 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain('" request_id=" + requestId');
     expect(patched).not.toContain("forward_failed reason=request_not_started");
     expect(patched).toContain("sendReaction(");
+    expect(patched).toContain("target.selectReaction(visible, false, false)");
+    expect(patched).toContain("target.getChoosenReactions()");
+    expect(patched).toContain("visible, false, true");
+    expect(patched).toContain("sendCrossgramE2eSelectedReaction(target, reaction)");
+    expect(patched).toContain("reaction_reset target_id=");
+    expect(patched).toContain('"reaction-inspect".equals(command)');
+    expect(patched).toContain("new org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble(");
+    expect(patched).toContain("reaction_layout_ready first=");
+    expect(patched).toContain("TL_messages_getCustomEmojiDocuments");
+    expect(patched).toContain("reaction_documents_loaded requested=");
+    expect(patched).toContain("loadRecentAndTopReactions(true)");
+    expect(patched).toContain("reaction_recent_ready first=");
+    expect(patched).toContain('"dialog-watch".equals(command)');
+    expect(patched).toContain("messagesController.dialogMessage.get(dialogId)");
+    expect(patched).toContain("dialog_updated_without_chat message_id=");
     expect(patched).toContain("runCrossgramE2eWithMessage");
     expect(patched).toContain("runCrossgramE2eSearch");
     expect(patched).toContain("runCrossgramE2eDownload");
@@ -87,6 +106,9 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("messagesController.putChats(result.chats, false)");
     expect(patched).toContain("history_peer_hydration_started");
     expect(patched).toContain("history_peer_hydrated");
+    expect(patched).toContain('operation + "_peer_hydration_started target_id="');
+    expect(patched).toContain('operation + "_load_retry target_id="');
+    expect(patched).toContain("runCrossgramE2eWithMessageAttempt(\n                                    new Intent(intent), operation, action, attempt + 1)");
     expect(patched).toContain("reason=peer_metadata_rpc");
     expect(patched).toContain("reason=peer_metadata_missing");
     expect(patched).toContain("ordered_desc=");
@@ -115,7 +137,11 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("crossgram_e2e_message_base64");
     expect(patched).toContain("history_loaded source=");
     expect(patched).toContain("private boolean runCrossgramE2eHistory");
+    expect(patched).toContain("private String crossgramE2eReactionKey");
+    expect(patched).toContain("private void sendCrossgramE2eSelectedReaction");
+    expect(patched).toContain("private void inspectCrossgramE2eReaction");
     expect(patched).toContain("private boolean runCrossgramE2eWithMessage");
+    expect(patched).toContain("private boolean runCrossgramE2eWithMessageAttempt");
     expect(patched).toContain("private boolean runCrossgramE2eSearch");
     expect(patched).not.toContain('String message = intent.getStringExtra("crossgram_e2e_message");');
     expect(patchLaunchE2eSource(patched, "LaunchActivity.java", method)).toBe(patched);
@@ -194,7 +220,14 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('dispatch(launchComponent, e2eAction, "state")');
     expect(runner).not.toContain('dispatch(component, "state")');
     expect(runner).toContain('if (command === "state")');
-    expect(runner).toContain("if (remaining < 15)");
+    expect(runner).toContain('crossgram_e2e_command", "login-phone"');
+    expect(runner).toContain('dispatch(launchComponent, e2eAction, "login-code"');
+    expect(runner).toContain('waitFor("login_phone_submitted", 90_000)');
+    expect(runner).toContain('const platform = option("platform", "qqnt");');
+    expect(runner).toContain('adb(["shell", "pm", "grant", packageName, "android.permission.POST_NOTIFICATIONS"])');
+    expect(runner).toContain('JOIN mtproto_platform_session p ON p.id=a.platformSessionId');
+    expect(runner).toContain('WHERE a.platformId=${sqlString(platform)} AND p.active=1');
+    expect(runner).not.toContain('FROM mtproto_auth_session ORDER BY id LIMIT 1');
     expect(runner).toContain('if (command === "stickers")');
     expect(runner).toContain('"messages.getAllStickers"');
     expect(runner).toContain('if (command === "sticker-install")');
@@ -225,6 +258,14 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain("resolveMessageTarget(");
     expect(runner).toContain("persisted reply relationship");
     expect(runner).toContain("selected message reaction");
+    expect(runner).toContain('if (command === "dialog-update")');
+    expect(runner).toContain('sendQqntMessage(option("qqnt-url"');
+    expect(runner).toContain('waitForOutcome("dialog_updated_without_chat", "dialog_update_failed"');
+    expect(runner).toContain('request.addToRecent === true');
+    expect(runner).toContain('dispatch(dispatcherComponent, undefined, "reaction-inspect"');
+    expect(runner).toContain('waitForOutcome("reaction_layout_ready", "reaction_inspect_failed"');
+    expect(runner).toContain('waitForOutcome("reaction_documents_loaded", "reaction_inspect_failed"');
+    expect(runner).toContain('waitForOutcome("reaction_recent_ready", "reaction_inspect_failed"');
     expect(runner).toContain("delete-and-resend edit tombstone");
     expect(runner).toContain("deleted message tombstone");
     expect(runner).toContain("saved draft");

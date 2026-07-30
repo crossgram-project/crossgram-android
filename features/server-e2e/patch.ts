@@ -39,6 +39,19 @@ export function patchLoginE2eSource(initial: string, file: string, methods: stri
     file,
     "add direct login page driver",
   );
+  if (!source.includes("public void runCrossgramE2eCode(String code)")) {
+    const codeStart = methods.indexOf("    public void runCrossgramE2eCode(String code)");
+    const codeEnd = methods.indexOf("    private void maybeRunCrossgramE2eCode", codeStart);
+    if (codeStart < 0 || codeEnd < 0) throw new Error("login E2E template is missing the code driver");
+    source = replaceRegexOnce(
+      source,
+      /(?=^[ \t]*private\s+void\s+maybeRunCrossgramE2eCode\s*\()/m,
+      `${methods.slice(codeStart, codeEnd).trimEnd()}\n\n`,
+      "public void runCrossgramE2eCode(String code)",
+      file,
+      "add a just-in-time login code driver",
+    );
+  }
   source = editDeclarationBody(
     source,
     /public\s+void\s+setPage\s*\(/,
@@ -53,20 +66,26 @@ export function patchLoginE2eSource(initial: string, file: string, methods: stri
 }
 
 export function patchLaunchE2eSource(initial: string, file: string, method: string): string {
-  const helperNames = [
-    "runCrossgramE2eHistory",
-    "runCrossgramE2eWithMessage",
-    "runCrossgramE2eWithMessages",
-    "runCrossgramE2eDownload",
-    "runCrossgramE2eSearch",
+  const helperSpecs = [
+    { name: "crossgramE2eReactionKey", returnType: "String" },
+    { name: "sendCrossgramE2eSelectedReaction", returnType: "void" },
+    { name: "inspectCrossgramE2eReaction", returnType: "void" },
+    { name: "runCrossgramE2eHistory", returnType: "boolean" },
+    { name: "runCrossgramE2eWithMessage", returnType: "boolean" },
+    { name: "runCrossgramE2eWithMessageAttempt", returnType: "boolean" },
+    { name: "runCrossgramE2eWithMessages", returnType: "boolean" },
+    { name: "runCrossgramE2eDownload", returnType: "boolean" },
+    { name: "runCrossgramE2eSearch", returnType: "boolean" },
   ];
-  const helperOffsets = helperNames.map((name) => method.indexOf(`    private boolean ${name}(`));
+  const helperOffsets = helperSpecs.map(({ name, returnType }) =>
+    method.indexOf(`    private ${returnType} ${name}(`));
   if (helperOffsets.some((offset) => offset < 0)) {
     throw new Error("server E2E launch template is missing a helper declaration");
   }
-  const helperBlocks = helperNames.map((name, index) => ({
+  const helperBlocks = helperSpecs.map(({ name, returnType }, index) => ({
     name,
-    marker: `private boolean ${name}(`,
+    returnType,
+    marker: `private ${returnType} ${name}(`,
     source: method.slice(helperOffsets[index], helperOffsets[index + 1] ?? method.length).trimEnd(),
   }));
   let templateBody = "";
@@ -114,7 +133,7 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
     let helperBody = "";
     editDeclarationBody(
       helper.source,
-      new RegExp(`private\\s+boolean\\s+${helper.name}\\s*\\(`),
+      new RegExp(`private\\s+${helper.returnType}\\s+${helper.name}\\s*\\(`),
       "launch-method.java",
       `${helper.name} template`,
       (body) => {
@@ -124,7 +143,7 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
     );
     source = editDeclarationBody(
       source,
-      new RegExp(`private\\s+boolean\\s+${helper.name}\\s*\\(`),
+      new RegExp(`private\\s+${helper.returnType}\\s+${helper.name}\\s*\\(`),
       file,
       `LaunchActivity.${helper.name}`,
       () => helperBody,
