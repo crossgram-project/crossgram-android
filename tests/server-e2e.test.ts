@@ -206,6 +206,9 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain("delete-and-resend edit tombstone");
     expect(runner).toContain("deleted message tombstone");
     expect(runner).toContain("saved draft");
+    expect(runner).toContain('if (command === "draft")');
+    expect(runner).toContain('await dispatch(launchComponent, e2eAction, "dialogs");');
+    expect(runner).toContain('await waitFor("page_opened:dialogs");');
     expect(runner).toContain("const messageExtras = message");
     expect(runner).toContain("...messageExtras");
     expect(runner).toContain('if (command === "history")');
