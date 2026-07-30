@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const ciScript = new URL("../scripts/ci/build-upstream.sh", import.meta.url);
+const releaseWorkflow = new URL("../.github/workflows/release.yml", import.meta.url);
 
 describe("build scripts", () => {
   it("writes portable artifact checksums", async () => {
@@ -11,5 +12,15 @@ describe("build scripts", () => {
     expect(source).toContain('cd "$OUTPUT_ROOT"');
     expect(source).toContain('sha256sum ./*.apk > "SHA256SUMS-${CLIENT}-${VARIANT}.txt"');
     expect(source).not.toContain('sha256sum "$OUTPUT_ROOT"/*.apk');
+  });
+
+  it("injects one default API identity while allowing complete secret overrides", async () => {
+    const [script, workflow] = await Promise.all([
+      readFile(ciScript, "utf8"),
+      readFile(releaseWorkflow, "utf8"),
+    ]);
+    expect(script).toContain('node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"');
+    expect(workflow).toContain("secrets.CROSSGRAM_TELEGRAM_API_ID");
+    expect(workflow).toContain("secrets.CROSSGRAM_TELEGRAM_API_HASH");
   });
 });

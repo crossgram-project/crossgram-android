@@ -21,6 +21,7 @@ git -C "$SOURCE_ROOT" -c submodule."libs/rust".update=none submodule update --in
 cd "$PATCHER_ROOT"
 corepack yarn run patch:source --client "$CLIENT" --source "$SOURCE_ROOT"
 corepack yarn run prepare-build --client "$CLIENT" --source "$SOURCE_ROOT" --variant "$VARIANT"
+node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"
 
 case "$VARIANT" in
   armAll) ABIS=(armeabi-v7a arm64-v8a) ;;

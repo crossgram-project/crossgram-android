@@ -25,7 +25,7 @@ Crossgram 在 Telegram Android 及其第三方客户端源码上语义地注入�
 | Nnngram | `NextAlone/Nnngram` | 更多菜单 |
 | Nullgram | `qwq233/Nullgram` | 更多菜单 |
 
-patch 保留每个上游原有的 API ID/hash 获取逻辑。Nagram、Nnngram 自带的 API 凭据切换功能也不会被覆盖。
+发布构建默认使用 Crossgram 项目的 Telegram API 身份；`CROSSGRAM_TELEGRAM_API_ID` 与 `CROSSGRAM_TELEGRAM_API_HASH` 可成对覆盖，缺少任一项都会明确失败。Nagram、Nnngram 自带的运行时 API 凭据切换功能仍会保留。
 
 Nnngram 与 Nullgram 上游没有公开其私有 `google-services.json`；品牌步骤会生成明确标记的本地占位配置，并关闭私有 Crashlytics 上传，使 release 可以构建，但这些版本没有上游 Firebase 推送/崩溃上传能力。Telegram/Nagram 发布了配置时，patch 会为新的 `.crossgram.<channel>` 包名添加匹配 client。Telegram API ID/hash 与 Firebase 配置是两套独立凭据。
 

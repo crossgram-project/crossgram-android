@@ -88,6 +88,8 @@ jobs:
           CROSSGRAM_KEYSTORE_PASSWORD: ${{ secrets.CROSSGRAM_KEYSTORE_PASSWORD }}
           CROSSGRAM_KEY_ALIAS: ${{ secrets.CROSSGRAM_KEY_ALIAS }}
           CROSSGRAM_KEY_PASSWORD: ${{ secrets.CROSSGRAM_KEY_PASSWORD }}
+          CROSSGRAM_TELEGRAM_API_ID: ${{ secrets.CROSSGRAM_TELEGRAM_API_ID }}
+          CROSSGRAM_TELEGRAM_API_HASH: ${{ secrets.CROSSGRAM_TELEGRAM_API_HASH }}
         run: >-
           bash scripts/ci/build-upstream.sh
           "${{ matrix.id }}"
