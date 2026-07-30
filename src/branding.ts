@@ -251,6 +251,7 @@ export async function applyBrand(root: string, upstream: Upstream, brand: Brand)
   const manifestRelatives = ["TMessagesProj/src/main/AndroidManifest.xml"];
   if (upstream.appModuleManifests) {
     manifestRelatives.push(
+      "TMessagesProj_App/src/main/AndroidManifest.xml",
       "TMessagesProj/config/debug/AndroidManifest.xml",
       "TMessagesProj/config/debug/AndroidManifest_SDK23.xml",
       "TMessagesProj/config/release/AndroidManifest.xml",

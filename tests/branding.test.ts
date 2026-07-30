@@ -116,6 +116,7 @@ describe("applyBrand", () => {
           },
         }],
       }),
+      "TMessagesProj_App/src/main/AndroidManifest.xml": manifest,
       "TMessagesProj/src/main/AndroidManifest.xml": manifest,
       "TMessagesProj/config/debug/AndroidManifest.xml": manifest,
       "TMessagesProj/config/debug/AndroidManifest_SDK23.xml": manifest,
@@ -139,6 +140,12 @@ describe("applyBrand", () => {
       '"package_name": "it.belloworld.mercurygram.crossgram.qq"',
     );
     expect(googleServices).not.toContain("org.telegram.messenger");
+    const appManifest = await readFile(
+      path.join(root, "TMessagesProj_App/src/main/AndroidManifest.xml"),
+      "utf8",
+    );
+    expect(appManifest).toContain('android:label="@string/CrossgramAppName"');
+    expect(appManifest).toContain('android:icon="@mipmap/crossgram_launcher"');
     await applyBrand(root, getUpstream("mercurygram"), getBrand("discord"));
     const updated = await readFile(path.join(root, "TMessagesProj_App/google-services.json"), "utf8");
     expect(updated).toContain(
