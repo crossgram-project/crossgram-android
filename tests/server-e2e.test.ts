@@ -262,7 +262,7 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('sendQqntMessage(option("qqnt-url"');
     expect(runner).toContain('waitForOutcome("dialog_updated_without_chat", "dialog_update_failed"');
     expect(runner).toContain('request.addToRecent === true');
-    expect(runner).toContain('dispatch(launchComponent, e2eAction, "reaction-inspect"');
+    expect(runner).toContain('dispatch(dispatcherComponent, undefined, "reaction-inspect"');
     expect(runner).toContain('waitForOutcome("reaction_layout_ready", "reaction_inspect_failed"');
     expect(runner).toContain('waitForOutcome("reaction_documents_loaded", "reaction_inspect_failed"');
     expect(runner).toContain('waitForOutcome("reaction_recent_ready", "reaction_inspect_failed"');

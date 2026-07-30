@@ -920,7 +920,7 @@ async function main() {
           );
           adb(["shell", "am", "force-stop", packageName]);
           adb(["logcat", "-c"]);
-          await dispatch(launchComponent, e2eAction, "reaction-inspect", [
+          await dispatch(dispatcherComponent, undefined, "reaction-inspect", [
             ...targetExtras,
             ["--es", "crossgram_e2e_reaction", reaction],
           ]);
