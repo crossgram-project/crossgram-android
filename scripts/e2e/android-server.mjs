@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   countSendRequests,
   findRpcError,
+  findRpcMethod,
   findSendRequest,
   latestEventId,
 } from "./mtproto-evidence.mjs";
@@ -81,6 +82,10 @@ function logs() {
 
 function transportLogs() {
   return adb(["logcat", "-d", "-s", "CrossgramDirectDownload:D", "*:S"]);
+}
+
+function mergedForwardLogs() {
+  return adb(["logcat", "-d", "-s", "CrossgramMergedForward:D", "CrossgramE2E:I", "*:S"]);
 }
 
 async function waitFor(marker, timeoutMs = 45_000) {
@@ -186,6 +191,42 @@ async function waitForPermanentSendRejection(relayRoot, baselineId, message, tim
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timed out waiting for permanent messages.sendMessage rejection: ${message}`);
+}
+
+async function waitForMtprotoRequest(relayRoot, baselineId, method, accept, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snapshot = inspectMtproto(relayRoot, [
+      "--after-id", String(baselineId),
+      "--limit", "500",
+    ]);
+    const event = (snapshot.events ?? []).find((candidate) => {
+      if (candidate.direction !== "client->server") return false;
+      const request = findRpcMethod(candidate.payload, method);
+      return request && accept(request);
+    });
+    if (event) return { event, request: findRpcMethod(event.payload, method) };
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Timed out waiting for Android MTProto request: ${method}`);
+}
+
+function parseTargetIds(value) {
+  const ids = String(value ?? "")
+    .split(",")
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isSafeInteger(item) && item > 0);
+  if (ids.length < 2 || new Set(ids).size !== ids.length) {
+    throw new Error("--target-ids must contain at least two distinct positive Telegram message IDs");
+  }
+  return ids;
+}
+
+function isGenericMergedForwardPreview(value) {
+  const compact = value.replace(/\s+/g, "");
+  return /^(?:共)?[xX×0-9]+条消息的合并转发$/.test(compact)
+    || /^(?:点击)?查看(?:[xX×0-9]+条)?(?:消息的)?(?:合并)?转发(?:消息)?$/.test(compact)
+    || /^(?:合并转发|聊天记录)$/.test(compact);
 }
 
 async function dispatch(component, action, command, extras = []) {
@@ -417,6 +458,150 @@ async function main() {
       rejectedRequestMessageId: rejected.request.messageId,
       rejectedRequestCount,
       replyMessageId: sent.id,
+    }, null, 2)}\n`);
+    return;
+  }
+
+  if (command === "merged-forward") {
+    const conversation = option("conversation");
+    const destinationConversation = option("destination-conversation");
+    if (!conversation) throw new Error("--conversation is required for merged-forward");
+    if (!destinationConversation) {
+      throw new Error("--destination-conversation is required for merged-forward");
+    }
+    const targetIds = parseTargetIds(option("target-ids"));
+    const peerType = option("peer-type", "chat");
+    const destinationPeerType = option("destination-peer-type", "chat");
+    const peerId = resolvePeer(relayRoot, conversation, peerType, option("peer-id"));
+    const destinationPeerId = resolvePeer(
+      relayRoot,
+      destinationConversation,
+      destinationPeerType,
+      option("destination-peer-id"),
+    );
+    const targetRows = inspectSql(
+      relayRoot,
+      `SELECT p.tlMessageId, m.text
+         FROM mtproto_im_message m
+         JOIN mtproto_tl_message_part p ON p.messageId=m.id
+         JOIN mtproto_im_conversation c ON c.id=m.conversationId
+        WHERE c.platformConversationId=${sqlString(conversation)}
+          AND p.tlMessageId IN (${targetIds.join(",")})
+        ORDER BY p.tlMessageId`,
+    );
+    if (targetRows.length !== targetIds.length) {
+      throw new Error(`Relay resolved ${targetRows.length}/${targetIds.length} merged-forward source messages`);
+    }
+    const [baseline] = inspectSql(
+      relayRoot,
+      "SELECT COALESCE(MAX(id), 0) AS id FROM mtproto_im_message",
+    );
+    const baselineEventId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
+
+    await dispatch(launchComponent, e2eAction, "chat", [
+      ["--es", "crossgram_e2e_peer_type", destinationPeerType],
+      ["--el", "crossgram_e2e_peer_id", destinationPeerId],
+    ]);
+    await waitFor("page_opened:chat");
+    await dispatch(launchComponent, e2eAction, "merged-forward", [
+      ["--es", "crossgram_e2e_peer_type", peerType],
+      ["--el", "crossgram_e2e_peer_id", peerId],
+      ["--es", "crossgram_e2e_target_message_ids", targetIds.join(",")],
+      ["--es", "crossgram_e2e_destination_peer_type", destinationPeerType],
+      ["--el", "crossgram_e2e_destination_peer_id", destinationPeerId],
+    ]);
+    await waitForOutcome("function_called:mergedForwardMessages", "merged_forward_failed");
+    const forwardedRequest = await waitForMtprotoRequest(
+      relayRoot,
+      baselineEventId,
+      "messages.forwardMessages",
+      (request) => request.id?.length === targetIds.length
+        && request.randomId?.length === targetIds.length
+        && targetIds.every((id) => request.id.includes(id)),
+    );
+    const merged = await waitForRelaySql(
+      relayRoot,
+      `SELECT m.id, m.primaryPlatformMessageId, p.tlMessageId
+         FROM mtproto_im_message m
+         JOIN mtproto_tl_message_part p ON p.messageId=m.id
+         JOIN mtproto_im_conversation c ON c.id=m.conversationId
+        WHERE m.id > ${Number(baseline.id)} AND m.outgoing=1 AND m.deleted=0
+          AND c.platformConversationId=${sqlString(destinationConversation)}
+        ORDER BY m.id, p.ordinal`,
+      (rows) => rows.length === 1 ? rows[0] : undefined,
+      "one persisted QQ merged-forward output",
+      90_000,
+    );
+    const collapseMarker = `collapsed removed=${targetIds.length - 1}`;
+    const collapseDeadline = Date.now() + 45_000;
+    while (Date.now() < collapseDeadline && !mergedForwardLogs().includes(collapseMarker)) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if (!mergedForwardLogs().includes(collapseMarker)) {
+      throw new Error(`Android did not collapse merged-forward placeholders\n${mergedForwardLogs()}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    const afterCollapseLogs = mergedForwardLogs();
+    if (afterCollapseLogs.includes("merged_forward_failed")
+      || afterCollapseLogs.includes("message_send_error")) {
+      throw new Error(`Android retained a failed merged-forward placeholder\n${afterCollapseLogs}`);
+    }
+    const outputs = inspectSql(
+      relayRoot,
+      `SELECT m.id
+         FROM mtproto_im_message m
+         JOIN mtproto_im_conversation c ON c.id=m.conversationId
+        WHERE m.id > ${Number(baseline.id)} AND m.outgoing=1 AND m.deleted=0
+          AND c.platformConversationId=${sqlString(destinationConversation)}`,
+    );
+    if (outputs.length !== 1) {
+      throw new Error(`QQ persisted ${outputs.length} outputs for one merged forward`);
+    }
+
+    const openBaselineEventId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
+    await dispatch(launchComponent, e2eAction, "open-merged-forward", [
+      ["--es", "crossgram_e2e_peer_type", destinationPeerType],
+      ["--el", "crossgram_e2e_peer_id", destinationPeerId],
+      ["--ei", "crossgram_e2e_target_message_id", merged.tlMessageId],
+    ]);
+    const previewOutput = await waitForOutcome(
+      "merged_forward_preview_ready",
+      "open_merged_forward_failed",
+      90_000,
+    );
+    const previewFields = markerFields(previewOutput, "merged_forward_preview_ready");
+    const preview = Buffer.from(previewFields.preview_base64, "base64").toString("utf8");
+    if (!preview.trim() || isGenericMergedForwardPreview(preview)) {
+      throw new Error(`Android rendered a generic merged-forward preview: ${preview}`);
+    }
+    const sourceTexts = targetRows.map((row) => String(row.text ?? "").trim()).filter(Boolean);
+    if (sourceTexts.length && !sourceTexts.some((text) => preview.includes(text.slice(0, 24)))) {
+      throw new Error(`Android preview does not contain source content: ${preview}`);
+    }
+    const openedOutput = await waitForOutcome(
+      "merged_forward_opened dialog_id=",
+      "open_merged_forward_failed",
+      90_000,
+    );
+    const openedFields = markerFields(openedOutput, "merged_forward_opened");
+    const historyRequest = await waitForMtprotoRequest(
+      relayRoot,
+      openBaselineEventId,
+      "messages.getHistory",
+      (request) => request.peer?._ === "inputPeerChat"
+        && Number(request.peer.chatId) === Math.abs(Number(openedFields.dialog_id)),
+      90_000,
+    );
+    process.stdout.write(`${JSON.stringify({
+      ok: true,
+      command,
+      sourceIds: targetIds,
+      forwardRequestMessageId: forwardedRequest.event.messageId,
+      mergedMessageId: merged.id,
+      mergedTlMessageId: merged.tlMessageId,
+      preview,
+      openedDialogId: openedFields.dialog_id,
+      historyRequestMessageId: historyRequest.event.messageId,
     }, null, 2)}\n`);
     return;
   }

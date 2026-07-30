@@ -56,6 +56,7 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
   const helperNames = [
     "runCrossgramE2eHistory",
     "runCrossgramE2eWithMessage",
+    "runCrossgramE2eWithMessages",
     "runCrossgramE2eDownload",
     "runCrossgramE2eSearch",
   ];
