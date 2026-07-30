@@ -210,12 +210,41 @@ describe("Android direct-download patch", () => {
       expect(changed).toContain(path.join(
         "TMessagesProj/src/main/java/org/telegram/messenger/crossgram_direct/CrossgramDirectHttp.java",
       ));
-      expect(await readFile(path.join(path.dirname(operation),
-        "crossgram_direct/CrossgramDirectDownload.java"), "utf8"))
-        .toContain("GET_FILE_URL_CONSTRUCTOR = 0x7520f6ea");
+      const runtime = await readFile(path.join(path.dirname(operation),
+        "crossgram_direct/CrossgramDirectDownload.java"), "utf8");
+      expect(runtime).toContain("import org.telegram.tgnet.AbstractSerializedData;");
+      expect(runtime).toContain("AbstractSerializedData stream");
+      expect(runtime).not.toContain("InputSerializedData");
+      expect(runtime).not.toContain("OutputSerializedData");
       expect(changed).toContain(
         "TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java",
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the split serialization API on current Telegram-family sources", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "crossgram-direct-split-api-"));
+    const operation = path.join(root,
+      "TMessagesProj/src/main/java/org/telegram/messenger/FileLoadOperation.java");
+    try {
+      await mkdir(path.dirname(operation), { recursive: true });
+      await writeFile(operation, fixture, "utf8");
+      const messageCell = path.join(root,
+        "TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java");
+      await mkdir(path.dirname(messageCell), { recursive: true });
+      await writeFile(messageCell, messageCellFixture, "utf8");
+      const tgnet = path.join(root, "TMessagesProj/src/main/java/org/telegram/tgnet");
+      await mkdir(tgnet, { recursive: true });
+      await writeFile(path.join(tgnet, "InputSerializedData.java"), "", "utf8");
+
+      await applyDirectDownload(root, getUpstream("nagram"));
+      const runtime = await readFile(path.join(path.dirname(operation),
+        "crossgram_direct/CrossgramDirectDownload.java"), "utf8");
+      expect(runtime).toContain("InputSerializedData stream");
+      expect(runtime).toContain("OutputSerializedData stream");
+      expect(runtime).not.toContain("AbstractSerializedData");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

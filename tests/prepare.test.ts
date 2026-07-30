@@ -102,6 +102,16 @@ describe("prepareBuild", () => {
         ]),
         "",
       ].join("\n"),
+      "TMessagesProj/jni/jni.c": [
+        "jint JNI_OnLoad(JavaVM *vm, void *reserved) {",
+        "    JNIEnv *env = 0;",
+        "    if (verifySign(env) != JNI_OK) {",
+        "        return JNI_ERR;",
+        "    }",
+        "    return JNI_VERSION_1_6;",
+        "}",
+        "",
+      ].join("\n"),
     };
     for (const [nativeRelative, content] of Object.entries(nativeFiles)) {
       const file = path.join(root, nativeRelative);
@@ -117,6 +127,35 @@ describe("prepareBuild", () => {
     const headers = await readFile(path.join(root, "TMessagesProj/jni/patch_ffmpeg.sh"), "utf8");
     expect(headers).not.toContain("#cp ffmpeg/");
     expect(headers).toContain("CROSSGRAM x86 FFmpeg internal headers enabled");
+    const jni = await readFile(path.join(root, "TMessagesProj/jni/jni.c"), "utf8");
+    expect(jni).toContain("accept the Crossgram release certificate");
+    expect(jni).not.toContain("verifySign(env)");
     expect(await prepareBuild(root, getUpstream("nagram"), "x86_64")).toEqual([]);
+  });
+
+  it("limits both Mercurygram modules without rewriting its Gradle wrapper", async () => {
+    const root = await fixture(
+      "TMessagesProj/build.gradle",
+      "plugins { id 'com.android.library' }\nandroid {}\n",
+    );
+    await mkdir(path.join(root, "TMessagesProj_App"), { recursive: true });
+    await writeFile(
+      path.join(root, "TMessagesProj_App/build.gradle"),
+      "plugins { id 'com.android.application' }\nandroid {}\n",
+      "utf8",
+    );
+    await mkdir(path.join(root, "gradle/wrapper"), { recursive: true });
+    const wrapper = "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.10.2-bin.zip\n";
+    await writeFile(path.join(root, "gradle/wrapper/gradle-wrapper.properties"), wrapper, "utf8");
+
+    await prepareBuild(root, getUpstream("mercurygram"), "x86_64");
+    const library = await readFile(path.join(root, "TMessagesProj/build.gradle"), "utf8");
+    const app = await readFile(path.join(root, "TMessagesProj_App/build.gradle"), "utf8");
+    expect(library).toContain("'x86_64'");
+    expect(library).not.toContain("splits {");
+    expect(app).toContain("'x86_64'");
+    expect(app).toContain("splits {");
+    expect(await readFile(path.join(root, "gradle/wrapper/gradle-wrapper.properties"), "utf8"))
+      .toBe(wrapper);
   });
 });

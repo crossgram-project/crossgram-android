@@ -7,6 +7,8 @@ REF=${3:?ref is required}
 VERSION=${4:?version is required}
 VARIANT=${5:?variant is required}
 GRADLE_TASK=${6:?gradle task is required}
+NDK_VERSION=${7:?NDK version is required}
+NATIVE_DEPS_NDK_VERSION=${8:-}
 
 PATCHER_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SOURCE_ROOT="$PATCHER_ROOT/upstream/$CLIENT"
@@ -14,9 +16,25 @@ OUTPUT_ROOT="$PATCHER_ROOT/artifacts/$CLIENT/$VARIANT"
 
 mkdir -p "$PATCHER_ROOT/upstream" "$OUTPUT_ROOT"
 git clone --depth 1 --branch "$REF" "https://github.com/$REPOSITORY.git" "$SOURCE_ROOT"
-# Nnngram/Nullgram intentionally keep an optional private Rust submodule that
-# their own public CI skips. It is not enabled by their Android Gradle files.
-git -C "$SOURCE_ROOT" -c submodule."libs/rust".update=none submodule update --init --recursive
+case "$CLIENT" in
+  mercurygram)
+    git -C "$SOURCE_ROOT" submodule update --init --recursive --depth 1 \
+      TMessagesProj/jni/libvpx \
+      TMessagesProj/jni/ffmpeg \
+      TMessagesProj/jni/dav1d \
+      TMessagesProj/jni/boringssl \
+      TMessagesProj/jni/td \
+      TMessagesProj/jni/whisper
+    ;;
+  nnngram|nullgram)
+    # These forks keep an optional private Rust submodule that their public CI
+    # skips. It is not enabled by their Android Gradle files.
+    git -C "$SOURCE_ROOT" -c submodule."libs/rust".update=none submodule update --init --recursive
+    ;;
+  *)
+    git -C "$SOURCE_ROOT" submodule update --init --recursive
+    ;;
+esac
 
 cd "$PATCHER_ROOT"
 corepack yarn run patch:source --client "$CLIENT" --source "$SOURCE_ROOT"
@@ -41,14 +59,10 @@ for abi in "${ABIS[@]}"; do
 done
 export CROSSGRAM_NATIVE_TARGETS="${NATIVE_TARGETS[*]}"
 
-case "$CLIENT" in
-  nagram) NDK_VERSION=27.2.12479018 ;;
-  telegram) NDK_VERSION=21.4.7075529 ;;
-  nnngram) NDK_VERSION=28.2.13676358 ;;
-  nullgram) NDK_VERSION=29.0.14206865 ;;
-  *) echo "Unknown client: $CLIENT" >&2; exit 2 ;;
-esac
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+if [[ -n "$NATIVE_DEPS_NDK_VERSION" ]]; then
+  export NATIVE_DEPS_NDK_DIR="$ANDROID_HOME/ndk/$NATIVE_DEPS_NDK_VERSION"
+fi
 
 SIGNING_DIR="$SOURCE_ROOT/.crossgram-signing"
 mkdir -p "$SIGNING_DIR"
@@ -70,13 +84,40 @@ RELEASE_KEY_ALIAS=$CROSSGRAM_KEY_ALIAS
 RELEASE_KEY_PASSWORD=$CROSSGRAM_KEY_PASSWORD
 EOF
 
+if [[ -n "$NATIVE_DEPS_NDK_VERSION" ]]; then
+  printf 'NATIVE_DEPS_NDK_DIR=%s\n' "$NATIVE_DEPS_NDK_DIR" >> "$SOURCE_ROOT/local.properties"
+fi
+
 export KEYSTORE_PASS="$CROSSGRAM_KEYSTORE_PASSWORD"
 export ALIAS_NAME="$CROSSGRAM_KEY_ALIAS"
 export ALIAS_PASS="$CROSSGRAM_KEY_PASSWORD"
 export ORG_GRADLE_PROJECT_RELEASE_STORE_PASSWORD="$CROSSGRAM_KEYSTORE_PASSWORD"
 export ORG_GRADLE_PROJECT_RELEASE_KEY_ALIAS="$CROSSGRAM_KEY_ALIAS"
 export ORG_GRADLE_PROJECT_RELEASE_KEY_PASSWORD="$CROSSGRAM_KEY_PASSWORD"
+export ORG_GRADLE_PROJECT_RELEASE_KEYSTORE_FILE="$SOURCE_ROOT/TMessagesProj/config/release.keystore"
 export COMPILE_NATIVE=1
+
+EXTRA_GRADLE_ARGS=()
+case "$CLIENT" in
+  mercurygram)
+    : "${CROSSGRAM_TELEGRAM_API_ID:?missing Telegram API ID secret}"
+    : "${CROSSGRAM_TELEGRAM_API_HASH:?missing Telegram API hash secret}"
+    printf 'APP_ID = %s\nAPP_HASH = %s\n' \
+      "$CROSSGRAM_TELEGRAM_API_ID" "$CROSSGRAM_TELEGRAM_API_HASH" \
+      > "$SOURCE_ROOT/API_KEYS"
+    EXTRA_GRADLE_ARGS+=("-PMG_BUILD_TAG=$VERSION")
+    ;;
+  forkgram)
+    : "${CROSSGRAM_TELEGRAM_API_ID:?missing Telegram API ID secret}"
+    : "${CROSSGRAM_TELEGRAM_API_HASH:?missing Telegram API hash secret}"
+    export ORG_GRADLE_PROJECT_APP_ID="$CROSSGRAM_TELEGRAM_API_ID"
+    export ORG_GRADLE_PROJECT_APP_HASH="$CROSSGRAM_TELEGRAM_API_HASH"
+    EXTRA_GRADLE_ARGS+=(
+      "-PAPP_ID=$CROSSGRAM_TELEGRAM_API_ID"
+      "-PAPP_HASH=$CROSSGRAM_TELEGRAM_API_HASH"
+    )
+    ;;
+esac
 
 if [[ "$CLIENT" == "nagram" ]]; then
   sudo apt-get update
@@ -96,7 +137,8 @@ for brand in qq wechat wecom dingtalk discord; do
   while IFS= read -r -d '' apk_output; do
     find "$apk_output" -mindepth 1 -delete
   done < <(find "$SOURCE_ROOT" -type d -path '*/build/outputs/apk' -print0)
-  ./gradlew "$GRADLE_TASK" --build-cache --no-configuration-cache --max-workers=2
+  ./gradlew "$GRADLE_TASK" "${EXTRA_GRADLE_ARGS[@]}" \
+    --build-cache --no-configuration-cache --max-workers=2
 
   found=0
   while IFS= read -r -d '' apk; do
