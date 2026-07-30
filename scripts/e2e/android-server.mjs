@@ -321,7 +321,11 @@ async function main() {
       rsa_key: rsa.publicKeyPem,
     };
     const remaining = 30 - (Math.floor(Date.now() / 1000) % 30);
-    if (remaining < 15) await new Promise((resolve) => setTimeout(resolve, (remaining + 1) * 1000));
+    // A first launch after install can spend about twenty seconds in Android
+    // and Firebase initialization before LoginActivity submits the code.
+    // Start only near the beginning of a TOTP window so the code cannot expire
+    // while the real app is still warming up.
+    if (remaining < 27) await new Promise((resolve) => setTimeout(resolve, (remaining + 1) * 1000));
     const code = loginCode(account.totpSecret);
 
     for (const permission of [
