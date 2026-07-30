@@ -68,9 +68,11 @@ export function patchLoginE2eSource(initial: string, file: string, methods: stri
 export function patchLaunchE2eSource(initial: string, file: string, method: string): string {
   const helperSpecs = [
     { name: "crossgramE2eReactionKey", returnType: "String" },
+    { name: "sendCrossgramE2eSelectedReaction", returnType: "void" },
     { name: "inspectCrossgramE2eReaction", returnType: "void" },
     { name: "runCrossgramE2eHistory", returnType: "boolean" },
     { name: "runCrossgramE2eWithMessage", returnType: "boolean" },
+    { name: "runCrossgramE2eWithMessageAttempt", returnType: "boolean" },
     { name: "runCrossgramE2eWithMessages", returnType: "boolean" },
     { name: "runCrossgramE2eDownload", returnType: "boolean" },
     { name: "runCrossgramE2eSearch", returnType: "boolean" },

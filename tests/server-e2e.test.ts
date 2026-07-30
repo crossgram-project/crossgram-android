@@ -138,8 +138,10 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("history_loaded source=");
     expect(patched).toContain("private boolean runCrossgramE2eHistory");
     expect(patched).toContain("private String crossgramE2eReactionKey");
+    expect(patched).toContain("private void sendCrossgramE2eSelectedReaction");
     expect(patched).toContain("private void inspectCrossgramE2eReaction");
     expect(patched).toContain("private boolean runCrossgramE2eWithMessage");
+    expect(patched).toContain("private boolean runCrossgramE2eWithMessageAttempt");
     expect(patched).toContain("private boolean runCrossgramE2eSearch");
     expect(patched).not.toContain('String message = intent.getStringExtra("crossgram_e2e_message");');
     expect(patchLaunchE2eSource(patched, "LaunchActivity.java", method)).toBe(patched);
