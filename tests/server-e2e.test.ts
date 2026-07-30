@@ -108,7 +108,9 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("history_peer_hydrated");
     expect(patched).toContain('operation + "_peer_hydration_started target_id="');
     expect(patched).toContain('operation + "_load_retry target_id="');
-    expect(patched).toContain("runCrossgramE2eWithMessageAttempt(\n                                    new Intent(intent), operation, action, attempt + 1)");
+    expect(patched).toMatch(
+      /runCrossgramE2eWithMessageAttempt\(\s*new Intent\(intent\), operation, action, attempt \+ 1\)/,
+    );
     expect(patched).toContain("reason=peer_metadata_rpc");
     expect(patched).toContain("reason=peer_metadata_missing");
     expect(patched).toContain("ordered_desc=");

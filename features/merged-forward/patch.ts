@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,14 +9,27 @@ import type { Upstream } from "../../src/upstreams.js";
 const featureRoot = path.dirname(fileURLToPath(import.meta.url));
 const sendHelperFile = "TMessagesProj/src/main/java/org/telegram/messenger/SendMessagesHelper.java";
 const browserFile = "TMessagesProj/src/main/java/org/telegram/messenger/browser/Browser.java";
+const messageObjectFile = "TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java";
+const splitUpdateFile = "TMessagesProj/src/main/java/org/telegram/tgnet/tl/TL_update.java";
 
-async function install(root: string, relative: string, changedFiles: string[]): Promise<void> {
-  const source = await readUtf8(path.join(featureRoot, "files", "java", relative));
-  const target = path.join(root, "TMessagesProj/src/main/java", relative);
-  if (await writeUtf8IfChanged(target, source)) changedFiles.push(path.relative(root, target));
+export function adaptMergedForwardRuntime(initial: string, hasSplitUpdateClasses: boolean): string {
+  if (hasSplitUpdateClasses) return initial;
+  return initial
+    .replace(/^import org\.telegram\.tgnet\.tl\.TL_update;\r?\n/m, "")
+    .replaceAll("TL_update.TL_", "TLRPC.TL_");
 }
 
-export function patchSendMessagesHelper(initial: string): string {
+export function topicIdFallbackArgument(messageObjectSource: string): "0" | "false" {
+  const prefix = String.raw`(?:public|protected|private)\s+static\s+long\s+getTopicId\s*\(\s*int\s+\w+\s*,\s*TLRPC\.Message\s+\w+\s*,\s*`;
+  if (new RegExp(`${prefix}int\\s+\\w+\\s*\\)`, "m").test(messageObjectSource)) return "0";
+  if (new RegExp(`${prefix}boolean\\s+\\w+\\s*\\)`, "m").test(messageObjectSource)) return "false";
+  throw new Error(`${messageObjectFile}: unsupported MessageObject.getTopicId signature`);
+}
+
+export function patchSendMessagesHelper(
+  initial: string,
+  topicIdFallback: "0" | "false" = "0",
+): string {
   let source = addJavaImport(
     initial,
     "org.telegram.messenger.crossgram_merged.CrossgramMergedForward",
@@ -52,7 +66,7 @@ export function patchSendMessagesHelper(initial: string): string {
             if (message.random_id == confirmedRandomId) continue;
             if (dialogId == 0) {
                 dialogId = MessageObject.getDialogId(message);
-                topicId = (int) MessageObject.getTopicId(currentAccount, message, 0);
+                topicId = (int) MessageObject.getTopicId(currentAccount, message, ${topicIdFallback});
             }
             removedIds.add(message.id);
             pendingMessages.remove(index);
@@ -105,13 +119,22 @@ export function patchBrowser(initial: string): string {
 
 export async function applyMergedForward(root: string, _upstream: Upstream): Promise<string[]> {
   const changedFiles: string[] = [];
-  await install(
-    root,
-    "org/telegram/messenger/crossgram_merged/CrossgramMergedForward.java",
-    changedFiles,
-  );
+  const runtimeRelative = "org/telegram/messenger/crossgram_merged/CrossgramMergedForward.java";
+  const runtimeSource = await readUtf8(path.join(featureRoot, "files", "java", runtimeRelative));
+  const runtimeTarget = path.join(root, "TMessagesProj/src/main/java", runtimeRelative);
+  const hasSplitUpdateClasses = await access(path.join(root, splitUpdateFile))
+    .then(() => true, () => false);
+  const adaptedRuntime = adaptMergedForwardRuntime(runtimeSource, hasSplitUpdateClasses);
+  if (await writeUtf8IfChanged(runtimeTarget, adaptedRuntime)) {
+    changedFiles.push(path.relative(root, runtimeTarget));
+  }
+
+  const topicIdFallback = topicIdFallbackArgument(await readUtf8(path.join(root, messageObjectFile)));
   const sendTarget = path.join(root, sendHelperFile);
-  if (await writeUtf8IfChanged(sendTarget, patchSendMessagesHelper(await readUtf8(sendTarget)))) {
+  if (await writeUtf8IfChanged(
+    sendTarget,
+    patchSendMessagesHelper(await readUtf8(sendTarget), topicIdFallback),
+  )) {
     changedFiles.push(sendHelperFile);
   }
   const browserTarget = path.join(root, browserFile);

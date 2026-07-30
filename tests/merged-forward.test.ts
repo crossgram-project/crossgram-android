@@ -3,7 +3,12 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { patchBrowser, patchSendMessagesHelper } from "../features/merged-forward/patch.js";
+import {
+  adaptMergedForwardRuntime,
+  patchBrowser,
+  patchSendMessagesHelper,
+  topicIdFallbackArgument,
+} from "../features/merged-forward/patch.js";
 
 const sendFixture = `package org.telegram.messenger;
 import org.telegram.tgnet.TLRPC;
@@ -38,6 +43,24 @@ describe("Android merged-forward patch", () => {
     expect(patchSendMessagesHelper(patched)).toBe(patched);
   });
 
+  it("adapts the topic fallback to old and new MessageObject signatures", () => {
+    const legacy = `public class MessageObject {
+      public static long getTopicId(int currentAccount, TLRPC.Message message, boolean sureIsForum) { return 0; }
+    }`;
+    const current = `public class MessageObject {
+      public static long getTopicId(int currentAccount, TLRPC.Message message, int sureIsForumTypeFlags) { return 0; }
+      public static long getTopicId(int currentAccount, TLRPC.Message message, boolean sureIsForum) { return 0; }
+    }`;
+    expect(topicIdFallbackArgument(legacy)).toBe("false");
+    expect(topicIdFallbackArgument(current)).toBe("0");
+    expect(patchSendMessagesHelper(sendFixture, "false")).toContain(
+      "MessageObject.getTopicId(currentAccount, message, false)",
+    );
+    expect(patchSendMessagesHelper(sendFixture, "0")).toContain(
+      "MessageObject.getTopicId(currentAccount, message, 0)",
+    );
+  });
+
   it("routes synthetic links before Telegram's generic browser handler", () => {
     const patched = patchBrowser(browserFixture);
     expect(patched).toContain("CrossgramMergedForward.openUrl(context, uri)");
@@ -52,5 +75,19 @@ describe("Android merged-forward patch", () => {
     expect(runtime).toContain("bridgechat_([1-9][0-9]*)");
     expect(runtime).toContain("deliveredCount != 1");
     expect(runtime).toContain("request.random_id.contains(confirmation.random_id)");
+  });
+
+  it("supports both split TL_update classes and legacy TLRPC update classes", async () => {
+    const runtime = await readFile(path.resolve(
+      "features/merged-forward/files/java/org/telegram/messenger/crossgram_merged/CrossgramMergedForward.java",
+    ), "utf8");
+    const split = adaptMergedForwardRuntime(runtime, true);
+    const legacy = adaptMergedForwardRuntime(runtime, false);
+    expect(split).toContain("import org.telegram.tgnet.tl.TL_update;");
+    expect(split).toContain("TL_update.TL_updateMessageID");
+    expect(legacy).not.toContain("org.telegram.tgnet.tl.TL_update");
+    expect(legacy).not.toContain("TL_update.TL_");
+    expect(legacy).toContain("TLRPC.TL_updateMessageID");
+    expect(adaptMergedForwardRuntime(legacy, false)).toBe(legacy);
   });
 });
