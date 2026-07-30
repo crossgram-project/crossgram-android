@@ -69,6 +69,11 @@ function stableId(value) {
   return (hash >>> 0) % 0x7ffffffe + 1;
 }
 
+function tlLongNumber(value) {
+  if (value && typeof value === "object" && "decimal" in value) return Number(value.decimal);
+  return Number(value);
+}
+
 function start(component, extras, action) {
   const args = ["shell", "am", "start", "-W", "-n", component];
   if (action) args.push("-a", action);
@@ -298,7 +303,7 @@ async function main() {
       rsa_key: rsa.publicKeyPem,
     };
     const remaining = 30 - (Math.floor(Date.now() / 1000) % 30);
-    if (remaining < 8) await new Promise((resolve) => setTimeout(resolve, (remaining + 1) * 1000));
+    if (remaining < 15) await new Promise((resolve) => setTimeout(resolve, (remaining + 1) * 1000));
     const code = loginCode(account.totpSecret);
 
     for (const permission of [
@@ -330,6 +335,87 @@ async function main() {
   if (command === "dialogs" || command === "all") {
     await dispatch(launchComponent, e2eAction, "dialogs");
     await waitFor("page_opened:dialogs");
+  }
+
+  if (command === "stickers") {
+    const expectedTitle = option("expect-title");
+    const baselineId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
+    await dispatch(launchComponent, e2eAction, "stickers");
+    await waitFor("function_called:loadStickers");
+    const output = await waitForOutcome("stickers_loaded count=", "stickers_failed", 90_000);
+    const rows = output.split(/\r?\n/)
+      .filter((line) => line.includes("sticker_pack set_id="))
+      .map((line) => {
+        const fields = markerFields(line, "sticker_pack");
+        return {
+          setId: Number(fields.set_id),
+          title: Buffer.from(fields.title_base64, "base64").toString("utf8"),
+          shortName: Buffer.from(fields.short_name_base64, "base64").toString("utf8"),
+          documents: Number(fields.documents),
+          installedDate: Number(fields.installed_date),
+          archived: fields.archived === "true",
+        };
+      });
+    if (expectedTitle && !rows.some((row) => row.title === expectedTitle)) {
+      throw new Error(`Android sticker list does not contain expected pack: ${expectedTitle}`);
+    }
+    const request = await waitForMtprotoRequest(
+      relayRoot,
+      baselineId,
+      "messages.getAllStickers",
+      () => true,
+      90_000,
+    );
+    process.stdout.write(`${JSON.stringify({
+      ok: true,
+      command,
+      requestMessageId: request.event.messageId,
+      packs: rows,
+    }, null, 2)}\n`);
+    return;
+  }
+
+  if (command === "sticker-install") {
+    const providerId = option("provider-id");
+    const packId = option("pack-id");
+    if (!providerId) throw new Error("--provider-id is required for sticker-install");
+    if (!packId) throw new Error("--pack-id is required for sticker-install");
+    const setId = stableId(`sticker-set:v6:${providerId}:${packId}`);
+    await dispatch(launchComponent, e2eAction, "stickers");
+    await waitForOutcome("stickers_loaded count=", "stickers_failed", 90_000);
+    const baselineId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
+    await dispatch(launchComponent, e2eAction, "sticker-install", [
+      ["--el", "crossgram_e2e_sticker_set_id", setId],
+    ]);
+    await waitForOutcome("function_called:toggleStickerSet set_id=", "sticker_install_failed", 90_000);
+    const request = await waitForMtprotoRequest(
+      relayRoot,
+      baselineId,
+      "messages.installStickerSet",
+      (value) => value.stickerset?._ === "inputStickerSetID"
+        && tlLongNumber(value.stickerset.id) === setId,
+      90_000,
+    );
+    const installed = await waitForRelaySql(
+      relayRoot,
+      `SELECT platformSessionId, providerId, providerPackId, uninstalled
+         FROM mtproto_sticker_set_install
+        WHERE providerId=${sqlString(providerId)}
+          AND providerPackId=${sqlString(packId)}
+          AND uninstalled=0
+        ORDER BY installedAt DESC LIMIT 1`,
+      (rows) => rows[0],
+      "installed sticker pack",
+      90_000,
+    );
+    process.stdout.write(`${JSON.stringify({
+      ok: true,
+      command,
+      setId,
+      requestMessageId: request.event.messageId,
+      installed,
+    }, null, 2)}\n`);
+    return;
   }
 
   if (command === "history") {

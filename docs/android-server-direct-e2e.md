@@ -95,6 +95,8 @@ Ninja，不能混用 MSYS Ninja。此外，`TMessagesProj/src/main/libs/x86_64/l
 yarn e2e:android-server --command login
 yarn e2e:android-server --command state
 yarn e2e:android-server --command dialogs
+yarn e2e:android-server --command stickers --expect-title "QQ 收藏表情"
+yarn e2e:android-server --command sticker-install --provider-id <provider-id> --pack-id <pack-id>
 yarn e2e:android-server --command chat --conversation 479613101
 yarn e2e:android-server --command history --conversation 479613101 --source server --count 50
 yarn e2e:android-server --command history --conversation 479613101 --source cache --count 50
