@@ -39,6 +39,19 @@ export function patchLoginE2eSource(initial: string, file: string, methods: stri
     file,
     "add direct login page driver",
   );
+  if (!source.includes("public void runCrossgramE2eCode(String code)")) {
+    const codeStart = methods.indexOf("    public void runCrossgramE2eCode(String code)");
+    const codeEnd = methods.indexOf("    private void maybeRunCrossgramE2eCode", codeStart);
+    if (codeStart < 0 || codeEnd < 0) throw new Error("login E2E template is missing the code driver");
+    source = replaceRegexOnce(
+      source,
+      /(?=^[ \t]*private\s+void\s+maybeRunCrossgramE2eCode\s*\()/m,
+      `${methods.slice(codeStart, codeEnd).trimEnd()}\n\n`,
+      "public void runCrossgramE2eCode(String code)",
+      file,
+      "add a just-in-time login code driver",
+    );
+  }
   source = editDeclarationBody(
     source,
     /public\s+void\s+setPage\s*\(/,

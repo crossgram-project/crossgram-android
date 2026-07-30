@@ -20,6 +20,14 @@
         phoneView.onNextPressed(null);
     }
 
+    public void runCrossgramE2eCode(String code) {
+        if (!BuildConfig.DEBUG || activityMode != MODE_LOGIN || TextUtils.isEmpty(code)) {
+            return;
+        }
+        crossgramE2eCode = code;
+        maybeRunCrossgramE2eCode(currentViewNum);
+    }
+
     private void maybeRunCrossgramE2eCode(int page) {
         if (!BuildConfig.DEBUG || TextUtils.isEmpty(crossgramE2eCode)) {
             return;

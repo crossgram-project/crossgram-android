@@ -3,13 +3,23 @@
             return false;
         }
         String command = intent.getStringExtra(CrossgramE2eActivity.EXTRA_COMMAND);
-        if ("login".equals(command)) {
+        if ("login-phone".equals(command)) {
             LoginActivity login = new LoginActivity();
             presentFragment(login);
             String phone = intent.getStringExtra("crossgram_e2e_phone");
-            String code = intent.getStringExtra("crossgram_e2e_code");
-            AndroidUtilities.runOnUIThread(() -> login.runCrossgramE2eLogin(phone, code), 250);
+            AndroidUtilities.runOnUIThread(() -> login.runCrossgramE2eLogin(phone, null), 250);
             android.util.Log.i("CrossgramE2E", "page_opened:login");
+            return true;
+        }
+        if ("login-code".equals(command)) {
+            BaseFragment last = getActionBarLayout().getLastFragment();
+            String code = intent.getStringExtra("crossgram_e2e_code");
+            if (!(last instanceof LoginActivity)) {
+                android.util.Log.e("CrossgramE2E", "login_code_failed reason=page_missing");
+                return true;
+            }
+            ((LoginActivity) last).runCrossgramE2eCode(code);
+            android.util.Log.i("CrossgramE2E", "function_called:runCrossgramE2eCode");
             return true;
         }
         if ("dialogs".equals(command)) {

@@ -27,6 +27,7 @@ describe("Android server E2E source driver", () => {
 
     expect(patched).toContain("phoneView.onNextPressed(null)");
     expect(patched).toContain("views[page].onNextPressed(code)");
+    expect(patched).toContain("public void runCrossgramE2eCode(String code)");
     expect(patched).toContain("maybeRunCrossgramE2eCode(page);");
     expect(patchLoginE2eSource(patched, "LoginActivity.java", methods)).toBe(patched);
   });
@@ -45,6 +46,9 @@ describe("Android server E2E source driver", () => {
     const patched = patchLaunchE2eSource(source, "LaunchActivity.java", method);
 
     expect(patched).toContain("new DialogsActivity(new Bundle())");
+    expect(patched).toContain('"login-phone".equals(command)');
+    expect(patched).toContain('"login-code".equals(command)');
+    expect(patched).toContain("((LoginActivity) last).runCrossgramE2eCode(code)");
     expect(patched).toContain("new ChatActivity(args)");
     expect(patched).toContain('"stickers".equals(command)');
     expect(patched).toContain("loadStickers(MediaDataController.TYPE_IMAGE, false, true, true);");
@@ -209,7 +213,9 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('dispatch(launchComponent, e2eAction, "state")');
     expect(runner).not.toContain('dispatch(component, "state")');
     expect(runner).toContain('if (command === "state")');
-    expect(runner).toContain("if (remaining < 27)");
+    expect(runner).toContain('crossgram_e2e_command", "login-phone"');
+    expect(runner).toContain('dispatch(launchComponent, e2eAction, "login-code"');
+    expect(runner).toContain('waitFor("login_phone_submitted", 90_000)');
     expect(runner).toContain('if (command === "stickers")');
     expect(runner).toContain('"messages.getAllStickers"');
     expect(runner).toContain('if (command === "sticker-install")');

@@ -320,14 +320,6 @@ async function main() {
       port,
       rsa_key: rsa.publicKeyPem,
     };
-    const remaining = 30 - (Math.floor(Date.now() / 1000) % 30);
-    // A first launch after install can spend about twenty seconds in Android
-    // and Firebase initialization before LoginActivity submits the code.
-    // Start only near the beginning of a TOTP window so the code cannot expire
-    // while the real app is still warming up.
-    if (remaining < 27) await new Promise((resolve) => setTimeout(resolve, (remaining + 1) * 1000));
-    const code = loginCode(account.totpSecret);
-
     for (const permission of [
       "android.permission.READ_PHONE_STATE",
       "android.permission.CALL_PHONE",
@@ -338,12 +330,16 @@ async function main() {
     }
     adb(["shell", "am", "force-stop", packageName]);
     start(dispatcherComponent, [
-      ["--es", "crossgram_e2e_command", "login"],
+      ["--es", "crossgram_e2e_command", "login-phone"],
       ["--es", "crossgram_e2e_server_config_base64", Buffer.from(JSON.stringify(config)).toString("base64")],
       ["--es", "crossgram_e2e_phone", account.virtualPhone],
+    ]);
+    await waitFor("login_phone_submitted", 90_000);
+    const code = loginCode(account.totpSecret);
+    await dispatch(launchComponent, e2eAction, "login-code", [
       ["--es", "crossgram_e2e_code", code],
     ]);
-    await waitFor("login_code_submitted");
+    await waitForOutcome("login_code_submitted", "login_code_failed");
     await new Promise((resolve) => setTimeout(resolve, 2_000));
     await dispatch(launchComponent, e2eAction, "state");
     await waitFor("state activated=true");
