@@ -17,6 +17,8 @@ on:
           - telegram
           - nnngram
           - nullgram
+          - mercurygram
+          - forkgram
   schedule:
     - cron: "17 3 * * *"
 
@@ -34,8 +36,8 @@ jobs:
       clients: ${{ steps.matrix.outputs.clients }}
       build: ${{ steps.matrix.outputs.build }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - run: corepack enable && yarn install --immutable
@@ -48,7 +50,6 @@ jobs:
   build:
     needs: discover
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -56,29 +57,42 @@ jobs:
       matrix: ${{ fromJSON(needs.discover.outputs.build) }}
     name: ${{ matrix.id }} · ${{ matrix.variant }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - uses: android-actions/setup-android@v3
-      - name: Install client NDK
+      - name: Validate Telegram API credentials
+        if: ${{ matrix.id == 'mercurygram' || matrix.id == 'forkgram' }}
+        env:
+          CROSSGRAM_TELEGRAM_API_ID: ${{ secrets.CROSSGRAM_TELEGRAM_API_ID }}
+          CROSSGRAM_TELEGRAM_API_HASH: ${{ secrets.CROSSGRAM_TELEGRAM_API_HASH }}
         run: |
-          case "${{ matrix.id }}" in
-            nagram) ndk_version=27.2.12479018 ;;
-            telegram) ndk_version=21.4.7075529 ;;
-            nnngram) ndk_version=28.2.13676358 ;;
-            nullgram) ndk_version=29.0.14206865 ;;
-          esac
-          (yes || true) | sdkmanager --install "ndk;$ndk_version" "cmake;3.22.1"
-      - uses: actions/setup-java@v4
+          if [[ -z "$CROSSGRAM_TELEGRAM_API_ID" || -z "$CROSSGRAM_TELEGRAM_API_HASH" ]]; then
+            echo "::error::Mercurygram/Forkgram require CROSSGRAM_TELEGRAM_API_ID and CROSSGRAM_TELEGRAM_API_HASH repository secrets."
+            exit 1
+          fi
+      - uses: android-actions/setup-android@v4
+      - name: Install client NDK
+        env:
+          NDK_VERSION: ${{ matrix.ndkVersion }}
+          NATIVE_DEPS_NDK_VERSION: ${{ matrix.nativeDepsNdkVersion }}
+        run: |
+          packages=("ndk;$NDK_VERSION" "cmake;3.22.1")
+          if [[ -n "$NATIVE_DEPS_NDK_VERSION" ]]; then
+            packages+=("ndk;$NATIVE_DEPS_NDK_VERSION")
+          fi
+          (yes || true) | sdkmanager --install "${packages[@]}"
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
       - name: Install native tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build yasm patch ccache
-      - uses: gradle/actions/setup-gradle@v4
+          sudo apt-get install -y \
+            autoconf automake bison ccache cmake curl gcc gperf libtool \
+            libuv1-dev make meson nasm ninja-build patch pkg-config yasm
+      - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: false
       - run: corepack enable && yarn install --immutable
@@ -88,6 +102,8 @@ jobs:
           CROSSGRAM_KEYSTORE_PASSWORD: ${{ secrets.CROSSGRAM_KEYSTORE_PASSWORD }}
           CROSSGRAM_KEY_ALIAS: ${{ secrets.CROSSGRAM_KEY_ALIAS }}
           CROSSGRAM_KEY_PASSWORD: ${{ secrets.CROSSGRAM_KEY_PASSWORD }}
+          CROSSGRAM_TELEGRAM_API_ID: ${{ secrets.CROSSGRAM_TELEGRAM_API_ID }}
+          CROSSGRAM_TELEGRAM_API_HASH: ${{ secrets.CROSSGRAM_TELEGRAM_API_HASH }}
         run: >-
           bash scripts/ci/build-upstream.sh
           "${{ matrix.id }}"
@@ -96,12 +112,14 @@ jobs:
           "${{ matrix.version }}"
           "${{ matrix.variant }}"
           "${{ matrix.gradleTask }}"
-      - uses: actions/upload-artifact@v4
-        if: always()
+          "${{ matrix.ndkVersion }}"
+          "${{ matrix.nativeDepsNdkVersion }}"
+      - uses: actions/upload-artifact@v7
+        if: success()
         with:
           name: apk-${{ matrix.id }}-${{ matrix.variant }}
           path: artifacts/${{ matrix.id }}/${{ matrix.variant }}/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
   publish:
@@ -110,8 +128,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Publish one unified release
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: apk-*
           path: release-assets

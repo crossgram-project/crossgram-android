@@ -91,7 +91,13 @@ interface GoogleServices {
   [key: string]: unknown;
 }
 
-function patchGoogleServices(source: string, baseId: string, brand: Brand, file: string): string {
+function patchGoogleServices(
+  source: string,
+  baseId: string,
+  brand: Brand,
+  file: string,
+  allowPlaceholder = false,
+): string {
   let config: GoogleServices;
   try {
     config = JSON.parse(source) as GoogleServices;
@@ -101,6 +107,7 @@ function patchGoogleServices(source: string, baseId: string, brand: Brand, file:
   const clients = config.client;
   const original = clients?.find((client) => client.client_info?.android_client_info?.package_name === baseId);
   if (!clients || !original) {
+    if (allowPlaceholder) return placeholderGoogleServices(baseId, brand, file);
     throw new PatchError(file, `could not find Google Services client for ${baseId}`);
   }
   const brandedId = `${baseId}.crossgram.${brand.id}`;
@@ -183,11 +190,8 @@ function patchManifest(source: string, file: string): string {
 
 export async function applyBrand(root: string, upstream: Upstream, brand: Brand): Promise<string[]> {
   const changed: string[] = [];
-  const appGradle = upstream.id === "telegram"
-    ? "TMessagesProj_App/build.gradle"
-    : upstream.id === "nnngram" || upstream.id === "nullgram"
-      ? "TMessagesProj/build.gradle.kts"
-      : "TMessagesProj/build.gradle";
+  const disablePrivateUploads = upstream.id === "nnngram" || upstream.id === "nullgram";
+  const appGradle = upstream.appGradle;
   const gradleFile = path.join(root, appGradle);
   const gradle = await readUtf8(gradleFile);
   if (!/com\.android\.application|libs\.plugins\.android\.application/.test(gradle)) {
@@ -209,9 +213,15 @@ export async function applyBrand(root: string, upstream: Upstream, brand: Brand)
     const googleServices = await readUtf8(googleServicesFile);
     if (await writeUtf8IfChanged(
       googleServicesFile,
-      patchGoogleServices(googleServices, baseId, brand, googleServicesRelative),
+      patchGoogleServices(
+        googleServices,
+        baseId,
+        brand,
+        googleServicesRelative,
+        upstream.id === "mercurygram" || upstream.id === "forkgram",
+      ),
     )) changed.push(googleServicesRelative);
-    if (googleServices.includes('"project_id": "crossgram-placeholder"')) {
+    if (disablePrivateUploads && googleServices.includes('"project_id": "crossgram-placeholder"')) {
       const current = await readUtf8(gradleFile);
       const disabledUploads = disablePrivateCrashlyticsUploads(current, appGradle);
       if (await writeUtf8IfChanged(gradleFile, disabledUploads) && !changed.includes(appGradle)) changed.push(appGradle);
@@ -230,12 +240,16 @@ export async function applyBrand(root: string, upstream: Upstream, brand: Brand)
       googleServicesFile,
       placeholderGoogleServices(baseId, brand, googleServicesRelative),
     )) changed.push(googleServicesRelative);
-    const disabledUploads = disablePrivateCrashlyticsUploads(current, appGradle);
-    if (await writeUtf8IfChanged(gradleFile, disabledUploads) && !changed.includes(appGradle)) changed.push(appGradle);
+    if (disablePrivateUploads) {
+      const disabledUploads = disablePrivateCrashlyticsUploads(current, appGradle);
+      if (await writeUtf8IfChanged(gradleFile, disabledUploads) && !changed.includes(appGradle)) {
+        changed.push(appGradle);
+      }
+    }
   }
 
   const manifestRelatives = ["TMessagesProj/src/main/AndroidManifest.xml"];
-  if (upstream.id === "telegram") {
+  if (upstream.appModuleManifests) {
     manifestRelatives.push(
       "TMessagesProj/config/debug/AndroidManifest.xml",
       "TMessagesProj/config/debug/AndroidManifest_SDK23.xml",

@@ -90,4 +90,60 @@ describe("applyBrand", () => {
     expect(await readFile(path.join(root, "TMessagesProj/google-services.json"), "utf8"))
       .toContain('"package_name": "xyz.nextalone.nnngram.crossgram.wechat"');
   });
+
+  it("replaces unrelated Telegram Firebase clients for app-module forks", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "crossgram-brand-app-module-"));
+    const manifest = [
+      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+      '  <application android:label="Mercurygram" android:icon="@mipmap/ic_launcher" />',
+      "</manifest>",
+      "",
+    ].join("\n");
+    const files: Record<string, string> = {
+      "gradle.properties": "APP_PACKAGE=it.belloworld.mercurygram\n",
+      "TMessagesProj_App/build.gradle": [
+        "plugins { id 'com.android.application' }",
+        "android {}",
+        "defaultConfig.applicationId = APP_PACKAGE",
+        "",
+      ].join("\n"),
+      "TMessagesProj_App/google-services.json": JSON.stringify({
+        project_info: { project_number: "1", project_id: "telegram-upstream" },
+        client: [{
+          client_info: {
+            mobilesdk_app_id: "app",
+            android_client_info: { package_name: "org.telegram.messenger" },
+          },
+        }],
+      }),
+      "TMessagesProj/src/main/AndroidManifest.xml": manifest,
+      "TMessagesProj/config/debug/AndroidManifest.xml": manifest,
+      "TMessagesProj/config/debug/AndroidManifest_SDK23.xml": manifest,
+      "TMessagesProj/config/release/AndroidManifest.xml": manifest,
+      "TMessagesProj/config/release/AndroidManifest_SDK23.xml": manifest,
+      "TMessagesProj/config/release/AndroidManifest_standalone.xml": manifest,
+    };
+    for (const [relative, content] of Object.entries(files)) {
+      const file = path.join(root, relative);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, content, "utf8");
+    }
+
+    await applyBrand(root, getUpstream("mercurygram"), getBrand("qq"));
+    const googleServices = await readFile(
+      path.join(root, "TMessagesProj_App/google-services.json"),
+      "utf8",
+    );
+    expect(googleServices).toContain('"project_id": "crossgram-placeholder"');
+    expect(googleServices).toContain(
+      '"package_name": "it.belloworld.mercurygram.crossgram.qq"',
+    );
+    expect(googleServices).not.toContain("org.telegram.messenger");
+    await applyBrand(root, getUpstream("mercurygram"), getBrand("discord"));
+    const updated = await readFile(path.join(root, "TMessagesProj_App/google-services.json"), "utf8");
+    expect(updated).toContain(
+      '"package_name": "it.belloworld.mercurygram.crossgram.discord"',
+    );
+    expect(updated).not.toContain("crossgram.qq");
+  });
 });

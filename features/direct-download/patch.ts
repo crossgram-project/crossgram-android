@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,7 +11,25 @@ const operationFile = "TMessagesProj/src/main/java/org/telegram/messenger/FileLo
 const messageCellFile = "TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java";
 
 async function install(root: string, relative: string, changedFiles: string[]): Promise<void> {
-  const source = await readUtf8(path.join(featureRoot, "files", "java", relative));
+  let source = await readUtf8(path.join(featureRoot, "files", "java", relative));
+  if (relative.endsWith("CrossgramDirectDownload.java")) {
+    const splitInputApi = path.join(
+      root,
+      "TMessagesProj/src/main/java/org/telegram/tgnet/InputSerializedData.java",
+    );
+    try {
+      await access(splitInputApi);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      source = source
+        .replace(
+          /import org\.telegram\.tgnet\.InputSerializedData;\r?\nimport org\.telegram\.tgnet\.OutputSerializedData;/,
+          "import org.telegram.tgnet.AbstractSerializedData;",
+        )
+        .replaceAll("InputSerializedData stream", "AbstractSerializedData stream")
+        .replaceAll("OutputSerializedData stream", "AbstractSerializedData stream");
+    }
+  }
   const target = path.join(root, "TMessagesProj/src/main/java", relative);
   if (await writeUtf8IfChanged(target, source)) changedFiles.push(path.relative(root, target));
 }

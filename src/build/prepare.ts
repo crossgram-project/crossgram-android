@@ -92,18 +92,14 @@ function updateGradleOverride(
 export async function prepareBuild(root: string, upstream: Upstream, variant: BuildVariant): Promise<string[]> {
   const abis = variantAbis[variant];
   if (!abis) throw new Error(`Unknown build variant: ${variant}`);
-  const candidates = [upstream.id === "nnngram" || upstream.id === "nullgram"
-    ? "TMessagesProj/build.gradle.kts"
-    : "TMessagesProj/build.gradle"];
-  if (upstream.id === "telegram") candidates.push("TMessagesProj_App/build.gradle");
   const changed: string[] = [];
-  for (const relative of candidates) {
+  for (const relative of upstream.buildGradles) {
     const file = path.join(root, relative);
     const source = await readUtf8(file);
     if (!/\bandroid\s*\{/.test(source)) {
       throw new PatchError(relative, "could not find the Android Gradle DSL");
     }
-    const includeSplits = upstream.id !== "telegram" || relative.startsWith("TMessagesProj_App/");
+    const includeSplits = relative === upstream.appGradle;
     const updated = updateGradleOverride(source, abis, relative.endsWith(".kts"), includeSplits);
     if (await writeUtf8IfChanged(file, updated)) changed.push(relative);
   }
@@ -140,6 +136,21 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     if (await writeUtf8IfChanged(jniFile, jniUpdated)) changed.push(jniRelative);
   }
   if (upstream.id === "nagram") {
+    const jniRelative = "TMessagesProj/jni/jni.c";
+    const jniFile = path.join(root, jniRelative);
+    const jniSource = await readUtf8(jniFile);
+    const signatureMarker = "/* CROSSGRAM: accept the Crossgram release certificate. */";
+    let jniUpdated = jniSource;
+    if (!jniUpdated.includes(signatureMarker)) {
+      const signatureGate = /[ \t]*if \(verifySign\(env\) != JNI_OK\) \{\r?\n[ \t]*return JNI_ERR;\r?\n[ \t]*\}/;
+      const matches = [...jniUpdated.matchAll(new RegExp(signatureGate.source, "g"))];
+      if (matches.length !== 1) {
+        throw new PatchError(jniRelative, `expected one upstream signature gate, found ${matches.length}`);
+      }
+      jniUpdated = jniUpdated.replace(signatureGate, `\n    ${signatureMarker}`);
+    }
+    if (await writeUtf8IfChanged(jniFile, jniUpdated)) changed.push(jniRelative);
+
     for (const relative of [
       "TMessagesProj/jni/build_boringssl.sh",
       "TMessagesProj/jni/build_libvpx_clang.sh",
