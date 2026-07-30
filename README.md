@@ -112,4 +112,6 @@ release 签名使用以下 Actions Secrets：
 - `CROSSGRAM_KEY_ALIAS`
 - `CROSSGRAM_KEY_PASSWORD`
 
+可选的 `CROSSGRAM_TELEGRAM_API_ID` 与 `CROSSGRAM_TELEGRAM_API_HASH` 必须成对设置，用于覆盖仓库内置的 Crossgram 默认身份。
+
 本地 keystore 和凭据位于被忽略的 `artifacts/` 目录，不应提交到 Git。
