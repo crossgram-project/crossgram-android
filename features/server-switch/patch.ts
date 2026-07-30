@@ -41,9 +41,7 @@ async function installFile(
   if (await writeUtf8IfChanged(path.join(root, target), await template(source))) changed.push(target);
 }
 
-async function patchConnectionsJava(root: string, changed: string[]): Promise<void> {
-  const file = "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java";
-  await editFile(root, file, changed, (initial) => {
+export function patchConnectionsJavaSource(initial: string, file: string): string {
     let source = addJavaImport(initial, "org.telegram.messenger.server_switch.ServerSwitchConfig", file);
     source = source.replace(
       "ServerSwitchConfig.apply(currentAccount);",
@@ -73,6 +71,20 @@ async function patchConnectionsJava(root: string, changed: string[]): Promise<vo
         return `\n        if (!ServerSwitchConfig.isSpecialConfigEnabled(currentAccount)) {\n            return;\n        }${body}`;
       },
     );
+    source = editDeclarationBody(
+      source,
+      /public\s+void\s+cleanup\s*\(/,
+      file,
+      "ConnectionsManager.cleanup",
+      (body) => replaceRegexOnce(
+        body,
+        /(^\s*native_cleanUp\(currentAccount, resetKeys\);[ \t]*$)/m,
+        "$1\n        ServerSwitchConfig.applyForInitialization(currentAccount);",
+        "ServerSwitchConfig.applyForInitialization(currentAccount);",
+        file,
+        "restore the selected custom server after tgnet cleanup resets datacenters",
+      ),
+    );
     const nativeDeclaration = "    public static native void native_setServerConfig(int currentAccount, String configId, String rsaKey, boolean enableSpecialConfig, boolean resetDatacenters);";
     if (/public\s+static\s+native\s+void\s+native_setServerConfig\s*\(/.test(source)) {
       source = source.replace(
@@ -90,7 +102,11 @@ async function patchConnectionsJava(root: string, changed: string[]): Promise<vo
       );
     }
     return source;
-  });
+}
+
+async function patchConnectionsJava(root: string, changed: string[]): Promise<void> {
+  const file = "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java";
+  await editFile(root, file, changed, (initial) => patchConnectionsJavaSource(initial, file));
 }
 
 async function patchWrapper(root: string, changed: string[]): Promise<void> {

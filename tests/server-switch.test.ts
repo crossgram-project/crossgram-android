@@ -3,7 +3,10 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { patchLoginIconSource } from "../features/server-switch/patch.js";
+import {
+  patchConnectionsJavaSource,
+  patchLoginIconSource,
+} from "../features/server-switch/patch.js";
 
 const root = path.resolve("features/server-switch/files");
 const file = "TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java";
@@ -94,6 +97,36 @@ describe("server switch login entry", () => {
 });
 
 describe("server switch initialization", () => {
+  it("restores the selected custom datacenters after tgnet cleanup", () => {
+    const source = `package org.telegram.tgnet;
+
+import org.telegram.messenger.FileLog;
+
+public class ConnectionsManager {
+    public ConnectionsManager(int currentAccount) {
+        init(currentAccount);
+    }
+
+    public void cleanup(boolean resetKeys) {
+        native_cleanUp(currentAccount, resetKeys);
+    }
+
+    public static void onRequestNewServerIpAndPort(int currentAccount) {
+        requestNewServerIpAndPort(currentAccount);
+    }
+
+    public static native void native_applyDatacenterAddress(int currentAccount, int dcId, String ip, int port);
+}`;
+    const connectionsFile = "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java";
+    const patched = patchConnectionsJavaSource(source, connectionsFile);
+
+    expect(patched).toContain("native_cleanUp(currentAccount, resetKeys);\n        ServerSwitchConfig.applyForInitialization(currentAccount);");
+    expect(patched.indexOf("native_cleanUp(currentAccount, resetKeys);")).toBeLessThan(
+      patched.indexOf("ServerSwitchConfig.applyForInitialization(currentAccount);", patched.indexOf("public void cleanup")),
+    );
+    expect(patchConnectionsJavaSource(patched, connectionsFile)).toBe(patched);
+  });
+
   it("injects startup configuration without resetting restored datacenters", async () => {
     const javaConfig = await readFile(
       path.join(root, "java/org/telegram/messenger/server_switch/ServerSwitchConfig.java"),

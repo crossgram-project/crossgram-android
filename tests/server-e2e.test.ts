@@ -46,6 +46,12 @@ describe("Android server E2E source driver", () => {
 
     expect(patched).toContain("new DialogsActivity(new Bundle())");
     expect(patched).toContain("new ChatActivity(args)");
+    expect(patched).toContain('"stickers".equals(command)');
+    expect(patched).toContain("loadStickers(MediaDataController.TYPE_IMAGE, false, true, false");
+    expect(patched).toContain('"sticker-install".equals(command)');
+    expect(patched).toContain("new TLRPC.TL_messages_getStickerSet()");
+    expect(patched).toContain("toggleStickerSet(");
+    expect(patched).toContain("function_called:toggleStickerSet set_id=");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendMessage");
     expect(patched).toContain("searchMessagesInChat");
     expect(patched).toContain("markDialogAsRead");
@@ -186,6 +192,13 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('dispatch(launchComponent, e2eAction, "state")');
     expect(runner).not.toContain('dispatch(component, "state")');
     expect(runner).toContain('if (command === "state")');
+    expect(runner).toContain('if (command === "stickers")');
+    expect(runner).toContain('"messages.getAllStickers"');
+    expect(runner).toContain('if (command === "sticker-install")');
+    expect(runner).toContain('stableId(`sticker-set:v6:${providerId}:${packId}`)');
+    expect(runner).toContain("tlLongNumber(value.stickerset.id) === setId");
+    expect(runner).toContain('"messages.installStickerSet"');
+    expect(runner).toContain("installed sticker pack");
     expect(runner).toContain('Buffer.from(message).toString("base64")');
     expect(runner).toContain("waitForRelayMessage(relayRoot, message)");
     expect(runner).toContain('["--no-warnings", inspector, "sql", sql]');
