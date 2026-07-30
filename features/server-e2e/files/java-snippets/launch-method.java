@@ -117,6 +117,73 @@
                         + " request_id=" + requestId);
             });
         }
+        if ("merged-forward".equals(command)) {
+            long destinationPeerId = intent.getLongExtra("crossgram_e2e_destination_peer_id", 0);
+            String destinationPeerType = intent.getStringExtra("crossgram_e2e_destination_peer_type");
+            long destinationDialogId = "user".equals(destinationPeerType) ? destinationPeerId : -destinationPeerId;
+            return runCrossgramE2eWithMessages(intent, "merged_forward", messages -> {
+                NotificationCenter.NotificationCenterDelegate sendErrorObserver =
+                        new NotificationCenter.NotificationCenterDelegate() {
+                    @Override
+                    public void didReceivedNotification(int id, int account, Object... args) {
+                        if (id == NotificationCenter.messageSendError) {
+                            android.util.Log.e("CrossgramE2E", "merged_forward_failed reason=message_send_error"
+                                    + " local_id=" + args[0]);
+                        }
+                    }
+                };
+                NotificationCenter.getInstance(currentAccount).addObserver(
+                        sendErrorObserver, NotificationCenter.messageSendError);
+                AndroidUtilities.runOnUIThread(() -> NotificationCenter.getInstance(currentAccount)
+                        .removeObserver(sendErrorObserver, NotificationCenter.messageSendError), 30000);
+                int requestId = SendMessagesHelper.getInstance(currentAccount)
+                        .sendMessage(messages, destinationDialogId, false, false, true, 0, 0);
+                android.util.Log.i("CrossgramE2E", "function_called:mergedForwardMessages count="
+                        + messages.size() + " request_id=" + requestId);
+            });
+        }
+        if ("open-merged-forward".equals(command)) {
+            return runCrossgramE2eWithMessage(intent, "open_merged_forward", target -> {
+                TLRPC.WebPage webPage = target.messageOwner.media == null
+                        ? null : target.messageOwner.media.webpage;
+                String url = webPage == null ? null : webPage.url;
+                String description = webPage == null ? null : webPage.description;
+                String compact = description == null ? "" : description.replaceAll("\\s+", "");
+                if (url == null || !url.matches("(?i)^https?://(?:www\\.)?t\\.me/bridgechat_[1-9][0-9]*/?.*$")) {
+                    android.util.Log.e("CrossgramE2E", "open_merged_forward_failed reason=invalid_url");
+                    return;
+                }
+                if (description == null || description.trim().isEmpty()
+                        || compact.matches("^(?:共)?[xX×0-9]+条消息的合并转发$")
+                        || compact.matches("^(?:点击)?查看(?:[xX×0-9]+条)?(?:消息的)?(?:合并)?转发(?:消息)?$")) {
+                    android.util.Log.e("CrossgramE2E", "open_merged_forward_failed reason=generic_preview");
+                    return;
+                }
+                String preview = android.util.Base64.encodeToString(
+                        description.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        android.util.Base64.NO_WRAP);
+                android.util.Log.i("CrossgramE2E", "merged_forward_preview_ready preview_base64=" + preview);
+                org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, android.net.Uri.parse(url));
+                final int[] attempts = { 0 };
+                final Runnable[] verify = new Runnable[1];
+                verify[0] = () -> {
+                    BaseFragment last = getActionBarLayout().getLastFragment();
+                    if (last instanceof ChatActivity
+                            && ((ChatActivity) last).getDialogId() != target.getDialogId()) {
+                        android.util.Log.i("CrossgramE2E", "merged_forward_opened dialog_id="
+                                + ((ChatActivity) last).getDialogId());
+                        return;
+                    }
+                    if (++attempts[0] >= 40) {
+                        android.util.Log.e("CrossgramE2E", "open_merged_forward_failed reason=page_timeout");
+                        return;
+                    }
+                    AndroidUtilities.runOnUIThread(verify[0], 250);
+                };
+                AndroidUtilities.runOnUIThread(verify[0], 250);
+                android.util.Log.i("CrossgramE2E", "function_called:openMergedForward");
+            });
+        }
         if ("reaction".equals(command)) {
             String reaction = intent.getStringExtra("crossgram_e2e_reaction");
             return runCrossgramE2eWithMessage(intent, "reaction", target -> {
@@ -333,6 +400,72 @@
                     MessagesController.LOAD_AROUND_MESSAGE, 0, ChatActivity.MODE_DEFAULT, 0, 0, 0, false);
             android.util.Log.i("CrossgramE2E", "function_called:loadMessageTarget operation=" + operation
                     + " target_id=" + targetId);
+            return true;
+    }
+
+    private boolean runCrossgramE2eWithMessages(
+            Intent intent,
+            String operation,
+            java.util.function.Consumer<java.util.ArrayList<MessageObject>> action) {
+            long peerId = intent.getLongExtra("crossgram_e2e_peer_id", 0);
+            String peerType = intent.getStringExtra("crossgram_e2e_peer_type");
+            long dialogId = "user".equals(peerType) ? peerId : -peerId;
+            String encodedIds = intent.getStringExtra("crossgram_e2e_target_message_ids");
+            java.util.ArrayList<Integer> targetIds = new java.util.ArrayList<>();
+            if (encodedIds != null) {
+                for (String value : encodedIds.split(",")) {
+                    try {
+                        targetIds.add(Integer.parseInt(value.trim()));
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+            if (targetIds.size() < 2) {
+                android.util.Log.e("CrossgramE2E", operation + "_failed reason=target_ids");
+                return true;
+            }
+            int classGuid = ConnectionsManager.generateClassGuid();
+            NotificationCenter.NotificationCenterDelegate observer = new NotificationCenter.NotificationCenterDelegate() {
+                @Override
+                public void didReceivedNotification(int id, int account, Object... args) {
+                    if (id == NotificationCenter.messagesDidLoad && (Integer) args[10] == classGuid) {
+                        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.messagesDidLoad);
+                        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.loadingMessagesFailed);
+                        java.util.ArrayList<MessageObject> loaded = (java.util.ArrayList<MessageObject>) args[2];
+                        java.util.ArrayList<MessageObject> targets = new java.util.ArrayList<>();
+                        for (Integer targetId : targetIds) {
+                            for (MessageObject object : loaded) {
+                                if (object.getId() == targetId) {
+                                    targets.add(object);
+                                    break;
+                                }
+                            }
+                        }
+                        if (targets.size() != targetIds.size()) {
+                            android.util.Log.e("CrossgramE2E", operation + "_failed reason=targets_missing"
+                                    + " expected=" + targetIds.size() + " found=" + targets.size());
+                            return;
+                        }
+                        android.util.Log.i("CrossgramE2E", "message_targets_loaded operation=" + operation
+                                + " count=" + targets.size());
+                        try {
+                            action.accept(targets);
+                        } catch (Throwable error) {
+                            android.util.Log.e("CrossgramE2E", operation + "_failed reason=action_exception");
+                        }
+                    } else if (id == NotificationCenter.loadingMessagesFailed && (Integer) args[0] == classGuid) {
+                        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.messagesDidLoad);
+                        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.loadingMessagesFailed);
+                        android.util.Log.e("CrossgramE2E", operation + "_failed reason=load_failed");
+                    }
+                }
+            };
+            NotificationCenter.getInstance(currentAccount).addObserver(observer, NotificationCenter.messagesDidLoad);
+            NotificationCenter.getInstance(currentAccount).addObserver(observer, NotificationCenter.loadingMessagesFailed);
+            MessagesController.getInstance(currentAccount).loadMessages(
+                    dialogId, 0, false, 100, targetIds.get(0), 0, false, 0, classGuid,
+                    MessagesController.LOAD_AROUND_MESSAGE, 0, ChatActivity.MODE_DEFAULT, 0, 0, 0, false);
+            android.util.Log.i("CrossgramE2E", "function_called:loadMessageTargets operation=" + operation
+                    + " count=" + targetIds.size());
             return true;
     }
 

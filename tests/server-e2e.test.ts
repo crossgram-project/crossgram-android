@@ -53,6 +53,12 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("editMessage(target, message");
     expect(patched).toContain("deleteMessages(");
     expect(patched).toContain("sendMessage(messages, destinationDialogId");
+    expect(patched).toContain("runCrossgramE2eWithMessages");
+    expect(patched).toContain('"merged-forward".equals(command)');
+    expect(patched).toContain('"open-merged-forward".equals(command)');
+    expect(patched).toContain("NotificationCenter.messageSendError");
+    expect(patched).toContain("merged_forward_preview_ready preview_base64=");
+    expect(patched).toContain("merged_forward_opened dialog_id=");
     expect(patched).toContain('" request_id=" + requestId');
     expect(patched).not.toContain("forward_failed reason=request_not_started");
     expect(patched).toContain("sendReaction(");
@@ -220,6 +226,22 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain("Android backward pagination did not advance past its anchor");
     expect(runner).toContain('const requireBothSides = booleanOption("require-both-sides")');
     expect(runner).toContain("Android around window did not span its anchor");
+    expect(runner).toContain('if (command === "merged-forward")');
+    expect(runner).toContain('"--target-ids must contain at least two distinct positive Telegram message IDs"');
+    expect(runner).toContain('"messages.forwardMessages"');
+    expect(runner).toContain("request.randomId?.length === targetIds.length");
+    expect(runner).toContain("one persisted QQ merged-forward output");
+    expect(runner).toContain("MAX(CAST(m.primaryPlatformMessageId AS INTEGER))");
+    expect(runner).toContain("CAST(m.primaryPlatformMessageId AS INTEGER) > ${BigInt(baseline.platformId)}");
+    expect(runner).toContain("collapsed removed=${targetIds.length - 1}");
+    expect(runner).toContain("Android retained a failed merged-forward placeholder");
+    expect(runner).toContain('dispatch(launchComponent, e2eAction, "open-merged-forward"');
+    expect(runner).toContain("merged_forward_preview_ready");
+    expect(runner).toContain("/([a-z0-9_]+)=([^ ]+)/g");
+    expect(runner).toContain("Android preview does not contain source content");
+    expect(runner).toContain('"messages.getHistory"');
+    expect(runner).toContain('request.peer?._ === "inputPeerChat"');
+    expect(runner).toContain('adb(["shell", "pm", "grant", packageName, permission])');
   });
 
   it("forces each download E2E through FileLoader instead of accepting a cached file", async () => {
