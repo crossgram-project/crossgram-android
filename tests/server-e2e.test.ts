@@ -187,6 +187,9 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('if (peerType !== "user") return stableId(`peer:${conversation}`)');
     expect(runner).toContain('throw new Error("--message is required for send")');
     expect(runner).toContain('if (command === "send-unblock")');
+    expect(runner).toContain("p.nativeSequence");
+    expect(runner).toContain("send-unblock requires a target with a stable native sequence");
+    expect(runner).toContain("json_extract(metadata, '$.qqReplyToMsgSeq')");
     expect(runner).toContain("waitForPermanentSendRejection(relayRoot, baselineId, failureMessage)");
     expect(runner).toContain('"CHAT_WRITE_FORBIDDEN"');
     expect(runner).toContain('crossgram_e2e_expect_send_error", true');
