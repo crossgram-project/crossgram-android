@@ -212,7 +212,7 @@ function resolveMessageTarget(relayRoot, conversation, explicitTlId, targetMessa
     : `m.text=${sqlString(targetMessage ?? "")}`;
   const [target] = inspectSql(
     relayRoot,
-    `SELECT m.id, m.primaryPlatformMessageId, m.text, m.deleted, p.tlMessageId
+    `SELECT m.id, m.primaryPlatformMessageId, m.text, m.deleted, p.tlMessageId, p.nativeSequence
        FROM mtproto_im_message m
        JOIN mtproto_tl_message_part p ON p.messageId=m.id
        JOIN mtproto_im_conversation c ON c.id=m.conversationId
@@ -221,6 +221,12 @@ function resolveMessageTarget(relayRoot, conversation, explicitTlId, targetMessa
   );
   if (!target) throw new Error("Relay has no matching message target for the requested Android operation");
   return target;
+}
+
+function nativeReplyPredicate(target) {
+  return target.nativeSequence === null || target.nativeSequence === undefined
+    ? ""
+    : `AND json_extract(metadata, '$.qqReplyToMsgSeq')=${sqlString(String(target.nativeSequence))}`;
 }
 
 async function main() {
@@ -351,6 +357,9 @@ async function main() {
       option("target-id"),
       option("target-message"),
     );
+    if (target.nativeSequence === null || target.nativeSequence === undefined) {
+      throw new Error("send-unblock requires a target with a stable native sequence");
+    }
     const failureMessage = option("failure-message", `crossgram-send-reject-${Date.now()}`);
     const baselineId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
 
@@ -397,6 +406,7 @@ async function main() {
       `SELECT id FROM mtproto_im_message
         WHERE id=${Number(sent.id)}
           AND json_extract(metadata, '$.__mtprotoRelayReplyToId')=${sqlString(target.primaryPlatformMessageId)}
+          ${nativeReplyPredicate(target)}
         LIMIT 1`,
       (rows) => rows[0],
       "reply sent after permanent rejection",
@@ -512,6 +522,7 @@ async function main() {
             `SELECT id FROM mtproto_im_message
               WHERE id=${Number(sent.id)}
                 AND json_extract(metadata, '$.__mtprotoRelayReplyToId')=${sqlString(target.primaryPlatformMessageId)}
+                ${nativeReplyPredicate(target)}
               LIMIT 1`,
             (rows) => rows[0],
             "persisted reply relationship",
