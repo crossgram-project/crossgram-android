@@ -32,24 +32,33 @@
         }
         if ("stickers".equals(command)) {
             MediaDataController mediaDataController = MediaDataController.getInstance(currentAccount);
-            mediaDataController.loadStickers(MediaDataController.TYPE_IMAGE, false, true, false, packs ->
-                    AndroidUtilities.runOnUIThread(() -> {
-                        android.util.Log.i("CrossgramE2E", "stickers_loaded count=" + packs.size());
-                        for (TLRPC.TL_messages_stickerSet pack : packs) {
-                            String title = android.util.Base64.encodeToString(
-                                    pack.set.title.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                                    android.util.Base64.NO_WRAP);
-                            String shortName = android.util.Base64.encodeToString(
-                                    pack.set.short_name.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                                    android.util.Base64.NO_WRAP);
-                            android.util.Log.i("CrossgramE2E", "sticker_pack set_id=" + pack.set.id
-                                    + " title_base64=" + title
-                                    + " short_name_base64=" + shortName
-                                    + " documents=" + pack.documents.size()
-                                    + " installed_date=" + pack.set.installed_date
-                                    + " archived=" + pack.set.archived);
-                        }
-                    }));
+            mediaDataController.loadStickers(MediaDataController.TYPE_IMAGE, false, true, true);
+            final int[] attempts = { 0 };
+            final Runnable[] inspect = new Runnable[1];
+            inspect[0] = () -> {
+                java.util.ArrayList<TLRPC.TL_messages_stickerSet> packs =
+                        mediaDataController.getStickerSets(MediaDataController.TYPE_IMAGE);
+                if (!packs.isEmpty() || ++attempts[0] >= 60) {
+                    android.util.Log.i("CrossgramE2E", "stickers_loaded count=" + packs.size());
+                    for (TLRPC.TL_messages_stickerSet pack : packs) {
+                        String title = android.util.Base64.encodeToString(
+                                pack.set.title.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                                android.util.Base64.NO_WRAP);
+                        String shortName = android.util.Base64.encodeToString(
+                                pack.set.short_name.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                                android.util.Base64.NO_WRAP);
+                        android.util.Log.i("CrossgramE2E", "sticker_pack set_id=" + pack.set.id
+                                + " title_base64=" + title
+                                + " short_name_base64=" + shortName
+                                + " documents=" + pack.documents.size()
+                                + " installed_date=" + pack.set.installed_date
+                                + " archived=" + pack.set.archived);
+                    }
+                    return;
+                }
+                AndroidUtilities.runOnUIThread(inspect[0], 250);
+            };
+            AndroidUtilities.runOnUIThread(inspect[0], 250);
             android.util.Log.i("CrossgramE2E", "function_called:loadStickers");
             return true;
         }

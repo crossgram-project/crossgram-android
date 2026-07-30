@@ -303,7 +303,7 @@ async function main() {
       rsa_key: rsa.publicKeyPem,
     };
     const remaining = 30 - (Math.floor(Date.now() / 1000) % 30);
-    if (remaining < 8) await new Promise((resolve) => setTimeout(resolve, (remaining + 1) * 1000));
+    if (remaining < 15) await new Promise((resolve) => setTimeout(resolve, (remaining + 1) * 1000));
     const code = loginCode(account.totpSecret);
 
     for (const permission of [

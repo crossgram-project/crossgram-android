@@ -47,7 +47,9 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("new DialogsActivity(new Bundle())");
     expect(patched).toContain("new ChatActivity(args)");
     expect(patched).toContain('"stickers".equals(command)');
-    expect(patched).toContain("loadStickers(MediaDataController.TYPE_IMAGE, false, true, false");
+    expect(patched).toContain("loadStickers(MediaDataController.TYPE_IMAGE, false, true, true);");
+    expect(patched).toContain("mediaDataController.getStickerSets(MediaDataController.TYPE_IMAGE)");
+    expect(patched).toContain("++attempts[0] >= 60");
     expect(patched).toContain('"sticker-install".equals(command)');
     expect(patched).toContain("new TLRPC.TL_messages_getStickerSet()");
     expect(patched).toContain("toggleStickerSet(");
@@ -192,6 +194,7 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('dispatch(launchComponent, e2eAction, "state")');
     expect(runner).not.toContain('dispatch(component, "state")');
     expect(runner).toContain('if (command === "state")');
+    expect(runner).toContain("if (remaining < 15)");
     expect(runner).toContain('if (command === "stickers")');
     expect(runner).toContain('"messages.getAllStickers"');
     expect(runner).toContain('if (command === "sticker-install")');
