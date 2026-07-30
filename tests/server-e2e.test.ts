@@ -77,6 +77,8 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("target.selectReaction(visible, false, false)");
     expect(patched).toContain("target.getChoosenReactions()");
     expect(patched).toContain("visible, false, true");
+    expect(patched).toContain("sendCrossgramE2eSelectedReaction(target, reaction)");
+    expect(patched).toContain("reaction_reset target_id=");
     expect(patched).toContain('"reaction-inspect".equals(command)');
     expect(patched).toContain("new org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble(");
     expect(patched).toContain("reaction_layout_ready first=");
@@ -104,6 +106,9 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("messagesController.putChats(result.chats, false)");
     expect(patched).toContain("history_peer_hydration_started");
     expect(patched).toContain("history_peer_hydrated");
+    expect(patched).toContain('operation + "_peer_hydration_started target_id="');
+    expect(patched).toContain('operation + "_load_retry target_id="');
+    expect(patched).toContain("runCrossgramE2eWithMessageAttempt(\n                                    new Intent(intent), operation, action, attempt + 1)");
     expect(patched).toContain("reason=peer_metadata_rpc");
     expect(patched).toContain("reason=peer_metadata_missing");
     expect(patched).toContain("ordered_desc=");
