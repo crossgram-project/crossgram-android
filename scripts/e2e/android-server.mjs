@@ -307,11 +307,16 @@ async function main() {
   adb(["logcat", "-c"]);
 
   if (command === "login" || command === "all") {
+    const platform = option("platform", "qqnt");
     const [account] = inspectSql(
       relayRoot,
-      "SELECT virtualPhone, totpSecret FROM mtproto_auth_session ORDER BY id LIMIT 1",
+      `SELECT a.virtualPhone, a.totpSecret
+         FROM mtproto_auth_session a
+         JOIN mtproto_platform_session p ON p.id=a.platformSessionId
+        WHERE a.platformId=${sqlString(platform)} AND p.active=1
+        ORDER BY p.createdAt, a.id LIMIT 1`,
     );
-    if (!account) throw new Error("Relay has no provisioned platform account");
+    if (!account) throw new Error(`Relay has no active provisioned ${platform} platform account`);
     const rsa = JSON.parse(readFileSync(path.join(relayRoot, "data/rsa-key.json"), "utf8"));
     const config = {
       name: "Crossgram Android E2E",

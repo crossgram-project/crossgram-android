@@ -216,6 +216,10 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('crossgram_e2e_command", "login-phone"');
     expect(runner).toContain('dispatch(launchComponent, e2eAction, "login-code"');
     expect(runner).toContain('waitFor("login_phone_submitted", 90_000)');
+    expect(runner).toContain('const platform = option("platform", "qqnt");');
+    expect(runner).toContain('JOIN mtproto_platform_session p ON p.id=a.platformSessionId');
+    expect(runner).toContain('WHERE a.platformId=${sqlString(platform)} AND p.active=1');
+    expect(runner).not.toContain('FROM mtproto_auth_session ORDER BY id LIMIT 1');
     expect(runner).toContain('if (command === "stickers")');
     expect(runner).toContain('"messages.getAllStickers"');
     expect(runner).toContain('if (command === "sticker-install")');
