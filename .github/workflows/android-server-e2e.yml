@@ -30,26 +30,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - name: Install Nagram native toolchain
         run: |
           (yes || true) | sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1"
           sudo apt-get update
           sudo apt-get install -y bison gcc make curl ninja-build yasm patch ccache
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: Install patcher dependencies
         run: corepack enable && yarn install --immutable
       - name: Patch and rebuild Nagram debug APK
         run: bash scripts/ci/build-e2e-nagram.sh "${{ inputs.nagram_ref || 'main' }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nagram-direct-function-e2e-x86_64
           path: artifacts/e2e-nagram-x86_64/

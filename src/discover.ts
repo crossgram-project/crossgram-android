@@ -1,6 +1,6 @@
 import { appendFile } from "node:fs/promises";
 
-import { upstreams } from "./upstreams.js";
+import { gradleTaskForVariant, upstreams, type ReleaseVariant } from "./upstreams.js";
 
 interface GithubRelease {
   tag_name?: string;
@@ -31,13 +31,13 @@ export interface DiscoveredUpstream {
   version: string;
   defaultBranch: string;
   gradleTask: string;
+  releaseVariants: readonly ReleaseVariant[];
+  ndkVersion: string;
+  nativeDepsNdkVersion: string;
 }
 
-const allVariants = ["arm64", "x86_64"] as const;
-const armVariants = ["arm64"] as const;
-
-export function variantsForClient(id: string): readonly (typeof allVariants)[number][] {
-  return id === "nnngram" || id === "nullgram" ? armVariants : allVariants;
+export function variantsForClient(id: string): readonly ReleaseVariant[] {
+  return upstreams.find((upstream) => upstream.id === id)?.releaseVariants ?? [];
 }
 
 export async function discoverUpstreams(): Promise<DiscoveredUpstream[]> {
@@ -56,6 +56,9 @@ export async function discoverUpstreams(): Promise<DiscoveredUpstream[]> {
       version: ref.replace(/^v/, ""),
       defaultBranch: upstream.defaultBranch,
       gradleTask: upstream.gradleTask,
+      releaseVariants: upstream.releaseVariants,
+      ndkVersion: upstream.ndkVersion,
+      nativeDepsNdkVersion: upstream.nativeDepsNdkVersion ?? "",
     };
   }));
 }
@@ -71,7 +74,14 @@ export async function emitGithubMatrices(outputFile?: string): Promise<object> {
   }
   const build = {
     include: clients.flatMap((client) =>
-      variantsForClient(client.id).map((variant) => ({ ...client, variant })),
+      variantsForClient(client.id).map((variant) => ({
+        ...client,
+        variant,
+        gradleTask: gradleTaskForVariant(
+          upstreams.find((upstream) => upstream.id === client.id)!,
+          variant,
+        ),
+      })),
     ),
   };
   const result = { clients, build };

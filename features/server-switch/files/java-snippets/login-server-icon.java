@@ -14,6 +14,8 @@
                     currentViewNum == VIEW_PHONE_INPUT ? View.VISIBLE : View.GONE);
             FrameLayout.LayoutParams serverSwitchLayout = LayoutHelper.createFrame(
                     32, 32, Gravity.LEFT | Gravity.TOP, newAccount ? 56 : 16, 16, 0, 0);
+            serverSwitchLayout.topMargin = AndroidUtilities.dp(16)
+                    + (AndroidUtilities.isTablet() ? 0 : AndroidUtilities.statusBarHeight);
             sizeNotifierFrameLayout.addView(serverSwitchButton, serverSwitchLayout);
         }
         // CROSSGRAM SERVER SWITCH ICON END

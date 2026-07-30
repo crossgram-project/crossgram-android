@@ -22,5 +22,17 @@ describe("build scripts", () => {
     expect(script).toContain('node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"');
     expect(workflow).toContain("secrets.CROSSGRAM_TELEGRAM_API_ID");
     expect(workflow).toContain("secrets.CROSSGRAM_TELEGRAM_API_HASH");
+    expect(workflow).not.toContain("require CROSSGRAM_TELEGRAM_API_ID");
+    expect(script).not.toContain("missing Telegram API ID secret");
+  });
+
+  it("prepares Mercurygram and Forkgram's extra build inputs", async () => {
+    const source = await readFile(ciScript, "utf8");
+
+    expect(source).toContain('mercurygram)');
+    expect(source).toContain('node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"');
+    expect(source).toContain('EXTRA_GRADLE_ARGS+=("-PMG_BUILD_TAG=$VERSION")');
+    expect(source).toContain('ORG_GRADLE_PROJECT_RELEASE_KEYSTORE_FILE');
+    expect(source).toContain('NATIVE_DEPS_NDK_DIR');
   });
 });

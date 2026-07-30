@@ -44,6 +44,8 @@ describe("server switch login entry", () => {
     expect(patched).toContain("private ImageView serverSwitchButton;");
     expect(patched).toContain("serverSwitchButton = new ImageView(context);");
     expect(patched).toContain("Gravity.LEFT | Gravity.TOP");
+    expect(patched).toContain("AndroidUtilities.statusBarHeight");
+    expect(patched).toContain("serverSwitchLayout.topMargin");
     expect(patched).toContain("updateServerSwitchButtonVisibility(page);");
     expect(patched.indexOf("serverSwitchButton = new ImageView(context);")).toBeLessThan(
       patched.lastIndexOf("return fragmentView;"),
