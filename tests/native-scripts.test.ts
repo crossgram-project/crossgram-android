@@ -22,6 +22,8 @@ describe("build scripts", () => {
     expect(script).toContain('node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"');
     expect(workflow).toContain("secrets.CROSSGRAM_TELEGRAM_API_ID");
     expect(workflow).toContain("secrets.CROSSGRAM_TELEGRAM_API_HASH");
+    expect(workflow).toContain("TDLIB_NDK_VERSION");
+    expect(workflow).toContain('packages+=("ndk;$TDLIB_NDK_VERSION")');
     expect(workflow).not.toContain("require CROSSGRAM_TELEGRAM_API_ID");
     expect(script).not.toContain("missing Telegram API ID secret");
   });

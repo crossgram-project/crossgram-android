@@ -66,10 +66,14 @@ jobs:
         env:
           NDK_VERSION: ${{ matrix.ndkVersion }}
           NATIVE_DEPS_NDK_VERSION: ${{ matrix.nativeDepsNdkVersion }}
+          TDLIB_NDK_VERSION: ${{ matrix.tdlibNdkVersion }}
         run: |
           packages=("ndk;$NDK_VERSION" "cmake;3.22.1")
           if [[ -n "$NATIVE_DEPS_NDK_VERSION" ]]; then
             packages+=("ndk;$NATIVE_DEPS_NDK_VERSION")
+          fi
+          if [[ -n "$TDLIB_NDK_VERSION" ]]; then
+            packages+=("ndk;$TDLIB_NDK_VERSION")
           fi
           (yes || true) | sdkmanager --install "${packages[@]}"
       - uses: actions/setup-java@v5
