@@ -580,13 +580,12 @@ async function main() {
     );
     const seed = markerFields(seedOutput, "sticker_recent_seed_started");
     const documentId = Number(seed.document_id);
-    const saveRequest = await waitForMtprotoRequest(
+    const seedRequest = await waitForMtprotoRequest(
       relayRoot,
       baselineEventId,
-      "messages.saveRecentSticker",
-      (value) => value.id?._ === "inputDocument"
-        && tlLongNumber(value.id.id) === documentId
-        && value.unsave === false,
+      "messages.sendMedia",
+      (value) => value.media?._ === "inputMediaDocument"
+        && tlLongNumber(value.media.id?.id) === documentId,
       90_000,
     );
     const seededMessage = await waitForRelaySql(
@@ -645,7 +644,7 @@ async function main() {
       command,
       setId,
       documentId,
-      saveRequestMessageId: saveRequest.event.messageId,
+      seedRequestMessageId: seedRequest.event.messageId,
       recentRequestMessageId: recentRequest.event.messageId,
       seededMessage,
       sentAgain,

@@ -249,7 +249,7 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain("uninstalled sticker pack tombstone");
     expect(runner).toContain("Android restored removed sticker pack after restart");
     expect(runner).toContain('if (command === "sticker-recent-send")');
-    expect(runner).toContain('"messages.saveRecentSticker"');
+    expect(runner).toContain('"messages.sendMedia"');
     expect(runner).toContain('"messages.getRecentStickers"');
     expect(runner).toContain("Android recent sticker changed across restart");
     expect(runner).toContain("recent sticker resend");
