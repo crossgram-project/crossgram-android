@@ -142,6 +142,107 @@
             android.util.Log.i("CrossgramE2E", "function_called:getStickerSet set_id=" + setId);
             return true;
         }
+        if ("sticker-uninstall".equals(command)) {
+            long setId = intent.getLongExtra("crossgram_e2e_sticker_set_id", 0);
+            if (setId <= 0) {
+                android.util.Log.e("CrossgramE2E", "sticker_uninstall_failed reason=invalid_set_id");
+                return true;
+            }
+            TLRPC.TL_messages_getStickerSet request = new TLRPC.TL_messages_getStickerSet();
+            TLRPC.TL_inputStickerSetID input = new TLRPC.TL_inputStickerSetID();
+            input.id = setId;
+            input.access_hash = 1;
+            request.stickerset = input;
+            request.hash = 0;
+            ConnectionsManager.getInstance(currentAccount).sendRequest(request, (response, error) ->
+                    AndroidUtilities.runOnUIThread(() -> {
+                        if (error != null || !(response instanceof TLRPC.TL_messages_stickerSet)) {
+                            android.util.Log.e("CrossgramE2E", "sticker_uninstall_failed reason=get_sticker_set"
+                                    + " code=" + (error == null ? 0 : error.code)
+                                    + " text=" + (error == null ? "unexpected_response" : error.text));
+                            return;
+                        }
+                        TLRPC.TL_messages_stickerSet pack = (TLRPC.TL_messages_stickerSet) response;
+                        MediaDataController.getInstance(currentAccount).toggleStickerSet(
+                                LaunchActivity.this, pack, 0, getActionBarLayout().getLastFragment(), false, false);
+                        android.util.Log.i("CrossgramE2E", "function_called:removeStickerSet set_id=" + pack.set.id);
+                    }));
+            android.util.Log.i("CrossgramE2E", "function_called:getStickerSetForRemoval set_id=" + setId);
+            return true;
+        }
+        if ("sticker-recent-seed".equals(command)) {
+            long setId = intent.getLongExtra("crossgram_e2e_sticker_set_id", 0);
+            long peerId = intent.getLongExtra("crossgram_e2e_peer_id", 0);
+            String peerType = intent.getStringExtra("crossgram_e2e_peer_type");
+            long dialogId = "user".equals(peerType) ? peerId : -peerId;
+            if (setId <= 0 || peerId <= 0) {
+                android.util.Log.e("CrossgramE2E", "sticker_recent_seed_failed reason=invalid_target");
+                return true;
+            }
+            TLRPC.TL_messages_getStickerSet request = new TLRPC.TL_messages_getStickerSet();
+            TLRPC.TL_inputStickerSetID input = new TLRPC.TL_inputStickerSetID();
+            input.id = setId;
+            input.access_hash = 1;
+            request.stickerset = input;
+            request.hash = 0;
+            ConnectionsManager.getInstance(currentAccount).sendRequest(request, (response, error) ->
+                    AndroidUtilities.runOnUIThread(() -> {
+                        if (error != null || !(response instanceof TLRPC.TL_messages_stickerSet)) {
+                            android.util.Log.e("CrossgramE2E", "sticker_recent_seed_failed reason=get_sticker_set"
+                                    + " code=" + (error == null ? 0 : error.code)
+                                    + " text=" + (error == null ? "unexpected_response" : error.text));
+                            return;
+                        }
+                        TLRPC.TL_messages_stickerSet pack = (TLRPC.TL_messages_stickerSet) response;
+                        if (pack.documents.isEmpty()) {
+                            android.util.Log.e("CrossgramE2E", "sticker_recent_seed_failed reason=empty_pack");
+                            return;
+                        }
+                        TLRPC.Document document = pack.documents.get(0);
+                        MediaDataController.getInstance(currentAccount).addRecentSticker(
+                                MediaDataController.TYPE_IMAGE, pack, document,
+                                (int) (System.currentTimeMillis() / 1000), false);
+                        SendMessagesHelper.getInstance(currentAccount).sendSticker(
+                                document, null, dialogId, null, null, null, null, null,
+                                true, 0, 0, false, pack, null, 0, 0, 0, null);
+                        android.util.Log.i("CrossgramE2E", "sticker_recent_seed_started document_id=" + document.id);
+                    }));
+            android.util.Log.i("CrossgramE2E", "function_called:getStickerSetForRecent set_id=" + setId);
+            return true;
+        }
+        if ("sticker-recent-send".equals(command)) {
+            long peerId = intent.getLongExtra("crossgram_e2e_peer_id", 0);
+            String peerType = intent.getStringExtra("crossgram_e2e_peer_type");
+            long dialogId = "user".equals(peerType) ? peerId : -peerId;
+            if (peerId <= 0) {
+                android.util.Log.e("CrossgramE2E", "sticker_recent_send_failed reason=invalid_target");
+                return true;
+            }
+            MediaDataController mediaDataController = MediaDataController.getInstance(currentAccount);
+            mediaDataController.loadRecents(MediaDataController.TYPE_IMAGE, false, true, true);
+            final int[] attempts = { 0 };
+            final Runnable[] inspect = new Runnable[1];
+            inspect[0] = () -> {
+                java.util.ArrayList<TLRPC.Document> recent =
+                        mediaDataController.getRecentStickers(MediaDataController.TYPE_IMAGE);
+                if (!recent.isEmpty()) {
+                    TLRPC.Document document = recent.get(0);
+                    SendMessagesHelper.getInstance(currentAccount).sendSticker(
+                            document, null, dialogId, null, null, null, null, null,
+                            true, 0, 0, false, null, null, 0, 0, 0, null);
+                    android.util.Log.i("CrossgramE2E", "sticker_recent_send_started document_id=" + document.id);
+                    return;
+                }
+                if (++attempts[0] >= 120) {
+                    android.util.Log.e("CrossgramE2E", "sticker_recent_send_failed reason=empty_recent");
+                    return;
+                }
+                AndroidUtilities.runOnUIThread(inspect[0], 250);
+            };
+            AndroidUtilities.runOnUIThread(inspect[0], 250);
+            android.util.Log.i("CrossgramE2E", "function_called:loadRecentStickers");
+            return true;
+        }
         if ("history".equals(command)) {
             return runCrossgramE2eHistory(intent, 0);
         }

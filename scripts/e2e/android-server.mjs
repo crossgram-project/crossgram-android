@@ -489,6 +489,169 @@ async function main() {
     return;
   }
 
+  if (command === "sticker-uninstall") {
+    const providerId = option("provider-id");
+    const packId = option("pack-id");
+    if (!providerId) throw new Error("--provider-id is required for sticker-uninstall");
+    if (!packId) throw new Error("--pack-id is required for sticker-uninstall");
+    const setId = stableId(`sticker-set:v6:${providerId}:${packId}`);
+    const [before] = inspectSql(
+      relayRoot,
+      `SELECT platformSessionId, providerId, providerPackId, uninstalled
+         FROM mtproto_sticker_set_install
+        WHERE providerId=${sqlString(providerId)}
+          AND providerPackId=${sqlString(packId)}
+          AND uninstalled=0
+        ORDER BY installedAt DESC LIMIT 1`,
+    );
+    if (!before) throw new Error("sticker-uninstall requires the pack to be installed first");
+    const baselineId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
+    await dispatch(launchComponent, e2eAction, "sticker-uninstall", [
+      ["--el", "crossgram_e2e_sticker_set_id", setId],
+    ]);
+    await waitForOutcome("function_called:removeStickerSet set_id=", "sticker_uninstall_failed", 90_000);
+    const request = await waitForMtprotoRequest(
+      relayRoot,
+      baselineId,
+      "messages.uninstallStickerSet",
+      (value) => value.stickerset?._ === "inputStickerSetID"
+        && tlLongNumber(value.stickerset.id) === setId,
+      90_000,
+    );
+    const removed = await waitForRelaySql(
+      relayRoot,
+      `SELECT platformSessionId, providerId, providerPackId, uninstalled
+         FROM mtproto_sticker_set_install
+        WHERE providerId=${sqlString(providerId)}
+          AND providerPackId=${sqlString(packId)}
+          AND uninstalled=1
+        ORDER BY installedAt DESC LIMIT 1`,
+      (rows) => rows[0],
+      "uninstalled sticker pack tombstone",
+      90_000,
+    );
+    adb(["shell", "am", "force-stop", packageName]);
+    adb(["logcat", "-c"]);
+    await dispatch(dispatcherComponent, undefined, "stickers");
+    const output = await waitForOutcome("stickers_loaded count=", "stickers_failed", 90_000);
+    const rows = output.split(/\r?\n/)
+      .filter((line) => line.includes("sticker_pack set_id="))
+      .map((line) => markerFields(line, "sticker_pack"));
+    if (rows.some((row) => Number(row.set_id) === setId)) {
+      throw new Error(`Android restored removed sticker pack after restart: ${setId}`);
+    }
+    process.stdout.write(`${JSON.stringify({
+      ok: true,
+      command,
+      setId,
+      requestMessageId: request.event.messageId,
+      removed,
+      restartPackCount: rows.length,
+    }, null, 2)}\n`);
+    return;
+  }
+
+  if (command === "sticker-recent-send") {
+    const providerId = option("provider-id");
+    const packId = option("pack-id");
+    const conversation = option("conversation");
+    if (!providerId) throw new Error("--provider-id is required for sticker-recent-send");
+    if (!packId) throw new Error("--pack-id is required for sticker-recent-send");
+    if (!conversation) throw new Error("--conversation is required for sticker-recent-send");
+    const peerType = option("peer-type", "chat");
+    const peerId = resolvePeer(relayRoot, conversation, peerType, option("peer-id"));
+    const setId = stableId(`sticker-set:v6:${providerId}:${packId}`);
+    const [baseline] = inspectSql(relayRoot, "SELECT COALESCE(MAX(id), 0) AS id FROM mtproto_im_message");
+    const baselineEventId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
+    await dispatch(launchComponent, e2eAction, "chat", [
+      ["--es", "crossgram_e2e_peer_type", peerType],
+      ["--el", "crossgram_e2e_peer_id", peerId],
+    ]);
+    await waitFor("page_opened:chat");
+    await dispatch(launchComponent, e2eAction, "sticker-recent-seed", [
+      ["--el", "crossgram_e2e_sticker_set_id", setId],
+      ["--es", "crossgram_e2e_peer_type", peerType],
+      ["--el", "crossgram_e2e_peer_id", peerId],
+    ]);
+    const seedOutput = await waitForOutcome(
+      "sticker_recent_seed_started document_id=",
+      "sticker_recent_seed_failed",
+      90_000,
+    );
+    const seed = markerFields(seedOutput, "sticker_recent_seed_started");
+    const documentId = Number(seed.document_id);
+    const seedRequest = await waitForMtprotoRequest(
+      relayRoot,
+      baselineEventId,
+      "messages.sendMedia",
+      (value) => value.media?._ === "inputMediaDocument"
+        && tlLongNumber(value.media.id?.id) === documentId,
+      90_000,
+    );
+    const seededMessage = await waitForRelaySql(
+      relayRoot,
+      `SELECT m.id, m.primaryPlatformMessageId, p.tlMessageId
+         FROM mtproto_im_message m
+         JOIN mtproto_tl_message_part p ON p.messageId=m.id
+         JOIN mtproto_im_conversation c ON c.id=m.conversationId
+        WHERE m.id > ${Number(baseline.id)} AND m.outgoing=1 AND m.deleted=0
+          AND c.platformConversationId=${sqlString(conversation)}
+        ORDER BY m.id, p.ordinal LIMIT 1`,
+      (rows) => rows[0],
+      "seed recent sticker message",
+      90_000,
+    );
+
+    adb(["shell", "am", "force-stop", packageName]);
+    adb(["logcat", "-c"]);
+    const coldBaselineEventId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
+    await dispatch(dispatcherComponent, undefined, "sticker-recent-send", [
+      ["--es", "crossgram_e2e_peer_type", peerType],
+      ["--el", "crossgram_e2e_peer_id", peerId],
+    ]);
+    await waitFor("function_called:loadRecentStickers", 90_000);
+    const recentOutput = await waitForOutcome(
+      "sticker_recent_send_started document_id=",
+      "sticker_recent_send_failed",
+      90_000,
+    );
+    const recent = markerFields(recentOutput, "sticker_recent_send_started");
+    if (Number(recent.document_id) !== documentId) {
+      throw new Error(`Android recent sticker changed across restart: ${recent.document_id} != ${documentId}`);
+    }
+    const recentRequest = await waitForMtprotoRequest(
+      relayRoot,
+      coldBaselineEventId,
+      "messages.getRecentStickers",
+      (value) => value.attached === false,
+      90_000,
+    );
+    const sentAgain = await waitForRelaySql(
+      relayRoot,
+      `SELECT m.id, m.primaryPlatformMessageId, p.tlMessageId
+         FROM mtproto_im_message m
+         JOIN mtproto_tl_message_part p ON p.messageId=m.id
+         JOIN mtproto_im_conversation c ON c.id=m.conversationId
+        WHERE m.id > ${Number(seededMessage.id)} AND m.outgoing=1 AND m.deleted=0
+          AND c.platformConversationId=${sqlString(conversation)}
+        ORDER BY m.id, p.ordinal LIMIT 1`,
+      (rows) => rows[0],
+      "recent sticker resend",
+      90_000,
+    );
+    process.stdout.write(`${JSON.stringify({
+      ok: true,
+      command,
+      setId,
+      documentId,
+      seedRequestMessageId: seedRequest.event.messageId,
+      recentRequestMessageId: recentRequest.event.messageId,
+      seededMessage,
+      sentAgain,
+    }, null, 2)}\n`);
+    return;
+  }
+
   if (command === "history") {
     const conversation = option("conversation");
     if (!conversation) throw new Error("--conversation is required for history");
