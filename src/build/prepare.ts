@@ -140,8 +140,9 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     const jniFile = path.join(root, jniRelative);
     const jniSource = await readUtf8(jniFile);
     const signatureMarker = "/* CROSSGRAM: accept the Crossgram release certificate. */";
+    const e2eSignatureMarker = "/* CROSSGRAM E2E: accept the ephemeral debug signing certificate. */";
     let jniUpdated = jniSource;
-    if (!jniUpdated.includes(signatureMarker)) {
+    if (!jniUpdated.includes(signatureMarker) && !jniUpdated.includes(e2eSignatureMarker)) {
       const signatureGate = /[ \t]*if \(verifySign\(env\) != JNI_OK\) \{\r?\n[ \t]*return JNI_ERR;\r?\n[ \t]*\}/;
       const matches = [...jniUpdated.matchAll(new RegExp(signatureGate.source, "g"))];
       if (matches.length !== 1) {

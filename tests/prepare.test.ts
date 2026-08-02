@@ -131,6 +131,16 @@ describe("prepareBuild", () => {
     expect(jni).toContain("accept the Crossgram release certificate");
     expect(jni).not.toContain("verifySign(env)");
     expect(await prepareBuild(root, getUpstream("nagram"), "x86_64")).toEqual([]);
+
+    await writeFile(
+      path.join(root, "TMessagesProj/jni/jni.c"),
+      jni.replace(
+        "/* CROSSGRAM: accept the Crossgram release certificate. */",
+        "/* CROSSGRAM E2E: accept the ephemeral debug signing certificate. */",
+      ),
+      "utf8",
+    );
+    expect(await prepareBuild(root, getUpstream("nagram"), "x86_64")).toEqual([]);
   });
 
   it("limits both Mercurygram modules without rewriting its Gradle wrapper", async () => {
