@@ -377,6 +377,9 @@ describe("Android server E2E source driver", () => {
     expect(script).toContain("frames_changed=true");
     expect(script).toContain("looped=true");
     expect(script).toContain("raw_animation_failed");
+    expect(script).toContain('adb install -r -g "$APK"');
+    expect(script).toContain("CrossgramE2E:V");
+    expect(script).not.toContain("CrossgramE2E:I CrossgramE2E:E");
     expect(workflow).toContain("api-level: 35");
     expect(workflow).toContain("run-raw-animation-avd-e2e.sh");
     expect(workflow).toContain('features/raw-animation/**');

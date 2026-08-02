@@ -14,7 +14,7 @@ if [[ -z "$APK" ]]; then
 fi
 
 adb wait-for-device
-adb install -r "$APK"
+adb install -r -g "$APK"
 adb shell input keyevent 82 || true
 adb push "$FIXTURE_ROOT/two-frame.gif" /data/local/tmp/crossgram-two-frame.gif >/dev/null
 adb push "$FIXTURE_ROOT/two-frame.apng" /data/local/tmp/crossgram-two-frame.apng >/dev/null
@@ -34,7 +34,7 @@ run_animation() {
   local deadline=$((SECONDS + 90))
   while (( SECONDS < deadline )); do
     local output
-    output=$(adb logcat -d -s CrossgramE2E:I CrossgramE2E:E '*:S')
+    output=$(adb logcat -d -s CrossgramE2E:V '*:S')
     if grep -F "raw_animation_failed" <<<"$output" | grep -F "format=$format" >/dev/null; then
       printf '%s\n' "$output" >&2
       return 1
@@ -47,7 +47,7 @@ run_animation() {
     fi
     sleep 1
   done
-  adb logcat -d -s CrossgramE2E:I CrossgramE2E:E '*:S' >&2
+  adb logcat -d -s CrossgramE2E:V '*:S' >&2
   adb logcat -d -t 500 >&2
   echo "Timed out waiting for changing $format frames" >&2
   return 1
