@@ -451,7 +451,7 @@ async function main() {
     const packId = option("pack-id");
     if (!providerId) throw new Error("--provider-id is required for sticker-install");
     if (!packId) throw new Error("--pack-id is required for sticker-install");
-    const setId = stableId(`sticker-set:v6:${providerId}:${packId}`);
+    const setId = stableId(`sticker-set:v7:${providerId}:${packId}`);
     await dispatch(launchComponent, e2eAction, "stickers");
     await waitForOutcome("stickers_loaded count=", "stickers_failed", 90_000);
     const baselineId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
@@ -494,7 +494,7 @@ async function main() {
     const packId = option("pack-id");
     if (!providerId) throw new Error("--provider-id is required for sticker-uninstall");
     if (!packId) throw new Error("--pack-id is required for sticker-uninstall");
-    const setId = stableId(`sticker-set:v6:${providerId}:${packId}`);
+    const setId = stableId(`sticker-set:v7:${providerId}:${packId}`);
     const [before] = inspectSql(
       relayRoot,
       `SELECT platformSessionId, providerId, providerPackId, uninstalled
@@ -560,7 +560,7 @@ async function main() {
     if (!conversation) throw new Error("--conversation is required for sticker-recent-send");
     const peerType = option("peer-type", "chat");
     const peerId = resolvePeer(relayRoot, conversation, peerType, option("peer-id"));
-    const setId = stableId(`sticker-set:v6:${providerId}:${packId}`);
+    const setId = stableId(`sticker-set:v7:${providerId}:${packId}`);
     const [baseline] = inspectSql(relayRoot, "SELECT COALESCE(MAX(id), 0) AS id FROM mtproto_im_message");
     const baselineEventId = latestEventId(inspectMtproto(relayRoot, ["--limit", "1"]));
     await dispatch(launchComponent, e2eAction, "chat", [
