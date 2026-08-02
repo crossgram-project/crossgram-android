@@ -354,6 +354,7 @@ ${transportBadgePlacement}
 export async function applyDirectDownload(root: string, _upstream: Upstream): Promise<string[]> {
   const changedFiles: string[] = [];
   await install(root, "org/telegram/messenger/crossgram_direct/CrossgramDirectHttp.java", changedFiles);
+  await install(root, "org/telegram/messenger/crossgram_direct/CrossgramBridgeFileReference.java", changedFiles);
   await install(root, "org/telegram/messenger/crossgram_direct/CrossgramDirectDownload.java", changedFiles);
   const target = path.join(root, operationFile);
   const source = await readUtf8(target);

@@ -2,6 +2,9 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -91,6 +94,8 @@ public class ChatMessageCell {
 }
 `;
 
+const exec = promisify(execFile);
+
 describe("Android direct-download patch", () => {
   it("injects URL resolution, HTTP chunks, fallback, cancellation, and observability idempotently", () => {
     const patched = patchFileLoadOperation(fixture);
@@ -155,6 +160,48 @@ describe("Android direct-download patch", () => {
     expect(runtime).toContain("REPORTED_TRANSPORTS");
     expect(runtime).toContain("supports(Object parentObject)");
     expect(runtime).toContain('"m".equals(location.thumb_size)');
+    expect(runtime).toContain("CrossgramBridgeFileReference.supports(reference)");
+  });
+
+  it("recognizes media, raw sticker, and raw reaction references without accepting malformed input", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "crossgram-direct-reference-"));
+    const packageDir = path.join(root, "org/telegram/messenger/crossgram_direct");
+    try {
+      await mkdir(packageDir, { recursive: true });
+      await writeFile(path.join(packageDir, "CrossgramBridgeFileReference.java"), await readFile(path.resolve(
+        "features/direct-download/files/java/org/telegram/messenger/crossgram_direct/CrossgramBridgeFileReference.java",
+      ), "utf8"), "utf8");
+      await writeFile(path.join(packageDir, "Harness.java"), `package org.telegram.messenger.crossgram_direct;
+import java.nio.charset.StandardCharsets;
+public final class Harness {
+  public static void main(String[] args) {
+    for (String value : args) {
+      System.out.print(CrossgramBridgeFileReference.supports(value.getBytes(StandardCharsets.UTF_8)) ? "1" : "0");
+    }
+  }
+}`, "utf8");
+      await exec("javac", [
+        path.join(packageDir, "CrossgramBridgeFileReference.java"),
+        path.join(packageDir, "Harness.java"),
+      ]);
+      const values = [
+        "bridge-media:42",
+        "bridge-sticker:qq:favorites/abc:0",
+        "bridge-sticker:qqnt:stickers:favorite:direct:7",
+        "bridge-reaction-resource:7002:1",
+        "bridge-media:0",
+        "bridge-sticker:qq::1",
+        "bridge-sticker:qq:item:-1",
+        "bridge-reaction-resource:0:1",
+        "bridge-reaction-resource:7002:x",
+        "bridge-unknown:1",
+      ];
+      const result = await exec("java", ["-cp", root,
+        "org.telegram.messenger.crossgram_direct.Harness", ...values]);
+      expect(result.stdout).toBe("1111000000");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("migrates an already-patched direct download buffer to a readable position", () => {
@@ -195,7 +242,7 @@ describe("Android direct-download patch", () => {
     expect(migrated).not.toContain("requestedBytesCount -= requestInfo.chunkSize;");
   });
 
-  it("installs both Java runtime files from the packaged template tree", async () => {
+  it("installs all Java runtime files from the packaged template tree", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "crossgram-direct-install-"));
     const operation = path.join(root,
       "TMessagesProj/src/main/java/org/telegram/messenger/FileLoadOperation.java");
@@ -209,6 +256,9 @@ describe("Android direct-download patch", () => {
       const changed = await applyDirectDownload(root, getUpstream("telegram"));
       expect(changed).toContain(path.join(
         "TMessagesProj/src/main/java/org/telegram/messenger/crossgram_direct/CrossgramDirectHttp.java",
+      ));
+      expect(changed).toContain(path.join(
+        "TMessagesProj/src/main/java/org/telegram/messenger/crossgram_direct/CrossgramBridgeFileReference.java",
       ));
       const runtime = await readFile(path.join(path.dirname(operation),
         "crossgram_direct/CrossgramDirectDownload.java"), "utf8");

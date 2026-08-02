@@ -10,7 +10,6 @@ import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 
 import java.net.HttpURLConnection;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -73,9 +72,7 @@ public final class CrossgramDirectDownload {
     }
 
     private static boolean supportsFileReference(byte[] reference) {
-        if (reference == null) return false;
-        String value = new String(reference, StandardCharsets.UTF_8);
-        return value.matches("bridge-media:[1-9][0-9]*");
+        return CrossgramBridgeFileReference.supports(reference);
     }
 
     /** Clears a stale result and exposes URL resolution to the message-cell indicator. */
