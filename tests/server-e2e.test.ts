@@ -65,8 +65,12 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain('"raw-animation-file".equals(command)');
     expect(patched).toContain("CrossgramRawAnimationSniffer");
     expect(patched).toContain("raw_animation_decoded format=");
-    expect(patched).toContain("crossgramE2eBitmapChecksum(first)");
-    expect(patched).toContain("|| !changed");
+    expect(patched).toContain("drawable.ignoreNoParent = true");
+    expect(patched).toContain("drawable.start()");
+    expect(patched).toContain("drawable.draw(canvas)");
+    expect(patched).toContain("crossgramE2eBitmapChecksum(rendered)");
+    expect(patched).toContain("frames_changed=true looped=true");
+    expect(patched).not.toContain("getFrameAtTime(");
     expect(patched).toContain("addRecentSticker(");
     expect(patched).toContain("getRecentStickers(MediaDataController.TYPE_IMAGE)");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendSticker(");

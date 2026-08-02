@@ -246,48 +246,72 @@
         if ("raw-animation-file".equals(command)) {
             String filePath = intent.getStringExtra("crossgram_e2e_file");
             String expectedFormat = intent.getStringExtra("crossgram_e2e_format");
-            Utilities.globalQueue.postRunnable(() -> {
-                java.io.File file = filePath == null ? null : new java.io.File(filePath);
-                boolean apng = org.telegram.messenger.crossgram_animation.CrossgramRawAnimationSniffer
-                        .isAnimatedPng(file);
-                boolean gif = org.telegram.messenger.crossgram_animation.CrossgramRawAnimationSniffer
-                        .isGif(file);
-                boolean expected = "apng".equals(expectedFormat) ? apng
-                        : "gif".equals(expectedFormat) && gif;
-                org.telegram.ui.Components.AnimatedFileDrawable drawable = null;
-                android.graphics.Bitmap first = null;
-                android.graphics.Bitmap later = null;
-                try {
-                    drawable = new org.telegram.ui.Components.AnimatedFileDrawable(
+            java.io.File file = filePath == null ? null : new java.io.File(filePath);
+            boolean apng = org.telegram.messenger.crossgram_animation.CrossgramRawAnimationSniffer
+                    .isAnimatedPng(file);
+            boolean gif = org.telegram.messenger.crossgram_animation.CrossgramRawAnimationSniffer
+                    .isGif(file);
+            boolean expected = "apng".equals(expectedFormat) ? apng
+                    : "gif".equals(expectedFormat) && gif;
+            final org.telegram.ui.Components.AnimatedFileDrawable drawable =
+                    new org.telegram.ui.Components.AnimatedFileDrawable(
                             file, true, 0, 0, null, null, null, 0, currentAccount, false, null);
-                    first = drawable.getNextFrame(true);
-                    long firstChecksum = crossgramE2eBitmapChecksum(first);
-                    long laterChecksum = firstChecksum;
-                    boolean changed = false;
-                    for (int frameAttempt = 0; frameAttempt < 8 && !changed; frameAttempt++) {
-                        later = drawable.getNextFrame(true);
-                        laterChecksum = crossgramE2eBitmapChecksum(later);
-                        changed = first != null && later != null && firstChecksum != laterChecksum;
+            int width = Math.max(1, drawable.getIntrinsicWidth());
+            int height = Math.max(1, drawable.getIntrinsicHeight());
+            final android.graphics.Bitmap rendered = android.graphics.Bitmap.createBitmap(
+                    width, height, android.graphics.Bitmap.Config.ARGB_8888);
+            final android.graphics.Canvas canvas = new android.graphics.Canvas(rendered);
+            final long[] firstChecksum = { Long.MIN_VALUE };
+            final long[] secondChecksum = { Long.MIN_VALUE };
+            final int[] attempts = { 0 };
+            final boolean[] changed = { false };
+            final Runnable[] inspect = new Runnable[1];
+            drawable.ignoreNoParent = true;
+            drawable.setBounds(0, 0, width, height);
+            inspect[0] = () -> {
+                try {
+                    rendered.eraseColor(android.graphics.Color.TRANSPARENT);
+                    drawable.draw(canvas);
+                    if (drawable.hasBitmap()) {
+                        long checksum = crossgramE2eBitmapChecksum(rendered);
+                        if (firstChecksum[0] == Long.MIN_VALUE) {
+                            firstChecksum[0] = checksum;
+                        } else if (!changed[0] && checksum != firstChecksum[0]) {
+                            changed[0] = true;
+                            secondChecksum[0] = checksum;
+                        } else if (changed[0] && checksum == firstChecksum[0]) {
+                            android.util.Log.i("CrossgramE2E", "raw_animation_decoded format="
+                                    + expectedFormat + " width=" + drawable.getIntrinsicWidth()
+                                    + " height=" + drawable.getIntrinsicHeight()
+                                    + " duration_ms=" + drawable.getDurationMs()
+                                    + " frames_changed=true looped=true first_checksum="
+                                    + firstChecksum[0] + " second_checksum=" + secondChecksum[0]);
+                            drawable.recycle();
+                            rendered.recycle();
+                            return;
+                        }
                     }
-                    if (!expected || drawable.nativePtr == 0 || first == null || later == null || !changed) {
+                    if (!expected || drawable.nativePtr == 0 || ++attempts[0] >= 80) {
                         android.util.Log.e("CrossgramE2E", "raw_animation_failed format=" + expectedFormat
                                 + " apng=" + apng + " gif=" + gif
                                 + " native_ptr=" + drawable.nativePtr
-                                + " first=" + (first != null) + " later=" + (later != null)
-                                + " frames_changed=" + changed
-                                + " first_checksum=" + firstChecksum + " later_checksum=" + laterChecksum);
-                    } else {
-                        android.util.Log.i("CrossgramE2E", "raw_animation_decoded format=" + expectedFormat + " width="
-                                + drawable.getIntrinsicWidth() + " height=" + drawable.getIntrinsicHeight()
-                                + " duration_ms=" + drawable.getDurationMs() + " frames_changed=" + changed);
+                                + " frames_changed=" + changed[0] + " looped=false"
+                                + " first_checksum=" + firstChecksum[0]
+                                + " second_checksum=" + secondChecksum[0]);
+                        drawable.recycle();
+                        rendered.recycle();
+                        return;
                     }
+                    AndroidUtilities.runOnUIThread(inspect[0], 50);
                 } catch (Throwable error) {
                     android.util.Log.e("CrossgramE2E", "raw_animation_failed reason="
                             + error.getClass().getSimpleName());
-                } finally {
-                    if (drawable != null) drawable.recycle();
+                    drawable.recycle();
+                    rendered.recycle();
                 }
-            });
+            };
+            drawable.start();
+            AndroidUtilities.runOnUIThread(inspect[0], 50);
             android.util.Log.i("CrossgramE2E", "function_called:rawAnimationFile");
             return true;
         }
