@@ -243,6 +243,49 @@
             android.util.Log.i("CrossgramE2E", "function_called:loadRecentStickers");
             return true;
         }
+        if ("raw-animation-file".equals(command)) {
+            String filePath = intent.getStringExtra("crossgram_e2e_file");
+            String expectedFormat = intent.getStringExtra("crossgram_e2e_format");
+            Utilities.globalQueue.postRunnable(() -> {
+                java.io.File file = filePath == null ? null : new java.io.File(filePath);
+                boolean apng = org.telegram.messenger.crossgram_animation.CrossgramRawAnimationSniffer
+                        .isAnimatedPng(file);
+                boolean gif = org.telegram.messenger.crossgram_animation.CrossgramRawAnimationSniffer
+                        .isGif(file);
+                boolean expected = "apng".equals(expectedFormat) ? apng
+                        : "gif".equals(expectedFormat) && gif;
+                org.telegram.ui.Components.AnimatedFileDrawable drawable = null;
+                android.graphics.Bitmap first = null;
+                android.graphics.Bitmap later = null;
+                try {
+                    drawable = new org.telegram.ui.Components.AnimatedFileDrawable(
+                            file, true, 0, 0, null, null, null, 0, currentAccount, false, null);
+                    first = drawable.getFrameAtTime(0, true);
+                    long laterMs = Math.max(1, Math.min(500, drawable.getDurationMs() / 2));
+                    later = drawable.getFrameAtTime(laterMs, true);
+                    boolean changed = first != null && later != null && !first.sameAs(later);
+                    if (!expected || drawable.nativePtr == 0 || first == null || later == null) {
+                        android.util.Log.e("CrossgramE2E", "raw_animation_failed format=" + expectedFormat
+                                + " apng=" + apng + " gif=" + gif
+                                + " native_ptr=" + drawable.nativePtr
+                                + " first=" + (first != null) + " later=" + (later != null));
+                    } else {
+                        android.util.Log.i("CrossgramE2E", "raw_animation_decoded format=" + expectedFormat + " width="
+                                + drawable.getIntrinsicWidth() + " height=" + drawable.getIntrinsicHeight()
+                                + " duration_ms=" + drawable.getDurationMs() + " frames_changed=" + changed);
+                    }
+                } catch (Throwable error) {
+                    android.util.Log.e("CrossgramE2E", "raw_animation_failed reason="
+                            + error.getClass().getSimpleName());
+                } finally {
+                    if (first != null) first.recycle();
+                    if (later != null && later != first) later.recycle();
+                    if (drawable != null) drawable.recycle();
+                }
+            });
+            android.util.Log.i("CrossgramE2E", "function_called:rawAnimationFile");
+            return true;
+        }
         if ("history".equals(command)) {
             return runCrossgramE2eHistory(intent, 0);
         }

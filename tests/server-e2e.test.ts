@@ -62,6 +62,9 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("function_called:removeStickerSet set_id=");
     expect(patched).toContain('"sticker-recent-seed".equals(command)');
     expect(patched).toContain('"sticker-recent-send".equals(command)');
+    expect(patched).toContain('"raw-animation-file".equals(command)');
+    expect(patched).toContain("CrossgramRawAnimationSniffer");
+    expect(patched).toContain("raw_animation_decoded format=");
     expect(patched).toContain("addRecentSticker(");
     expect(patched).toContain("getRecentStickers(MediaDataController.TYPE_IMAGE)");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendSticker(");

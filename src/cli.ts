@@ -6,6 +6,7 @@ import { applyServerSwitch } from "../features/server-switch/patch.js";
 import { applyDirectDownload } from "../features/direct-download/patch.js";
 import { applyMergedForward } from "../features/merged-forward/patch.js";
 import { applyReactionOrder } from "../features/reaction-order/patch.js";
+import { applyRawAnimation } from "../features/raw-animation/patch.js";
 import { applyBrand, getBrand } from "./branding.js";
 import { prepareBuild, type BuildVariant } from "./build/prepare.js";
 import { emitGithubMatrices } from "./discover.js";
@@ -29,10 +30,11 @@ async function main(): Promise<void> {
     const directDownloadFiles = await applyDirectDownload(root, upstream);
     const mergedForwardFiles = await applyMergedForward(root, upstream);
     const reactionOrderFiles = await applyReactionOrder(root, upstream);
+    const rawAnimationFiles = await applyRawAnimation(root, upstream);
     console.log(JSON.stringify({
       client: upstream.id,
       source: root,
-      changedFiles: [...result.changedFiles, ...directDownloadFiles, ...mergedForwardFiles, ...reactionOrderFiles],
+      changedFiles: [...result.changedFiles, ...directDownloadFiles, ...mergedForwardFiles, ...reactionOrderFiles, ...rawAnimationFiles],
     }, null, 2));
   } else if (command === "e2e") {
     const upstream = getUpstream(option("client")!);
