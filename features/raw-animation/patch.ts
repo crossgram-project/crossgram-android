@@ -198,6 +198,48 @@ export function patchGifVideoRawAnimation(initial: string): string {
     gifVideoFile,
     "avoid APNG AV_NOPTS_VALUE duration overflow",
   );
+  source = replaceRegexOnce(
+    source,
+    /(?=^extern\s+"C"\s+JNIEXPORT\s+void\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo)/m,
+    `static bool crossgramCanWriteFrame(const AVFrame *frame) {
+    return frame != nullptr
+            && frame->format > AV_PIX_FMT_NONE
+            && frame->format < AV_PIX_FMT_NB;
+}
+
+`,
+    "crossgramCanWriteFrame(const AVFrame *frame)",
+    gifVideoFile,
+    "allow FFmpeg swscale to render raw GIF/APNG pixel formats",
+  );
+  const legacyFrameFormatCheck = String.raw`if\s*\(info->frame->format\s*==\s*AV_PIX_FMT_YUV444P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUV420P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_BGRA\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUVJ420P\)\s*\{`;
+  source = replaceRegexOnce(
+    source,
+    new RegExp(`(extern\\s+"C"\\s+JNIEXPORT\\s+void\\s+JNICALL\\s+Java_org_telegram_ui_Components_AnimatedFileNative_nSeekToMs[\\s\\S]*?)${legacyFrameFormatCheck}`),
+    `$1/* CROSSGRAM: accept every swscale-supported format while seeking. */
+                if (crossgramCanWriteFrame(info->frame)) {`,
+    "CROSSGRAM: accept every swscale-supported format while seeking",
+    gifVideoFile,
+    "seek through APNG RGB frames",
+  );
+  source = replaceRegexOnce(
+    source,
+    new RegExp(`(extern\\s+"C"\\s+JNIEXPORT\\s+int\\s+JNICALL\\s+Java_org_telegram_ui_Components_AnimatedFileNative_nGetFrameAtTime[\\s\\S]*?)${legacyFrameFormatCheck}`),
+    `$1/* CROSSGRAM: accept every swscale-supported format during frame lookup. */
+                if (crossgramCanWriteFrame(info->frame)) {`,
+    "CROSSGRAM: accept every swscale-supported format during frame lookup",
+    gifVideoFile,
+    "render APNG frames during precise frame lookup",
+  );
+  source = replaceRegexOnce(
+    source,
+    /if\s*\(bitmap\s*!=\s*nullptr\s*&&\s*\(info->frame->format\s*==\s*AV_PIX_FMT_YUV420P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_BGRA\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUVJ420P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUV444P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUVA420P\)\)\s*\{/,
+    `/* CROSSGRAM: render every swscale-supported animation format. */
+            if (bitmap != nullptr && crossgramCanWriteFrame(info->frame)) {`,
+    "CROSSGRAM: render every swscale-supported animation format",
+    gifVideoFile,
+    "render APNG frames during normal animation playback",
+  );
   return source;
 }
 

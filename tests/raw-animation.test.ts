@@ -76,6 +76,21 @@ extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNa
 extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nCreateDecoder() {
     dataArr[4] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);
 }
+extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nSeekToMs() {
+    if (info->frame->format == AV_PIX_FMT_YUV444P || info->frame->format == AV_PIX_FMT_YUV420P || info->frame->format == AV_PIX_FMT_BGRA || info->frame->format == AV_PIX_FMT_YUVJ420P) {
+        finished = true;
+    }
+}
+extern "C" JNIEXPORT int JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetFrameAtTime() {
+    if (info->frame->format == AV_PIX_FMT_YUV444P || info->frame->format == AV_PIX_FMT_YUV420P || info->frame->format == AV_PIX_FMT_BGRA || info->frame->format == AV_PIX_FMT_YUVJ420P) {
+        writeFrameToBitmap(env, info, data, bitmap);
+    }
+}
+extern "C" JNIEXPORT jint JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoFrame() {
+    if (bitmap != nullptr && (info->frame->format == AV_PIX_FMT_YUV420P || info->frame->format == AV_PIX_FMT_BGRA || info->frame->format == AV_PIX_FMT_YUVJ420P || info->frame->format == AV_PIX_FMT_YUV444P || info->frame->format == AV_PIX_FMT_YUVA420P)) {
+        writeFrameToBitmap(env, info, data, bitmap);
+    }
+}
 `;
 
 describe("Android raw GIF/APNG patch", () => {
@@ -109,10 +124,14 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patchFfmpegRawAnimation(patched, "build_ffmpeg.sh")).toBe(patched);
   });
 
-  it("does not expose APNG's unknown duration as a multi-week integer", () => {
+  it("renders FFmpeg GIF/APNG frames and guards APNG's unknown duration", () => {
     const patched = patchGifVideoRawAnimation(gifVideoFixture);
     expect(patched).toContain("info->fmt_ctx->duration == AV_NOPTS_VALUE");
     expect(patched.match(/crossgramDurationMs\(info\)/g)).toHaveLength(2);
+    expect(patched).toContain("crossgramCanWriteFrame(const AVFrame *frame)");
+    expect(patched.match(/if \(crossgramCanWriteFrame\(info->frame\)\) \{/g)).toHaveLength(2);
+    expect(patched).toContain("if (bitmap != nullptr && crossgramCanWriteFrame(info->frame)) {");
+    expect(patched).not.toContain("bitmap != nullptr && (info->frame->format == AV_PIX_FMT_YUV420P");
     expect(patchGifVideoRawAnimation(patched)).toBe(patched);
   });
 

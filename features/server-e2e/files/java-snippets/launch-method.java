@@ -260,13 +260,15 @@
                 try {
                     drawable = new org.telegram.ui.Components.AnimatedFileDrawable(
                             file, true, 0, 0, null, null, null, 0, currentAccount, false, null);
-                    first = drawable.getFrameAtTime(0, false);
+                    first = drawable.getNextFrame(true);
                     long firstChecksum = crossgramE2eBitmapChecksum(first);
-                    long laterMs = drawable.getDurationMs() > 1
-                            ? Math.min(500, drawable.getDurationMs() / 2) : 200;
-                    later = drawable.getFrameAtTime(laterMs, false);
-                    long laterChecksum = crossgramE2eBitmapChecksum(later);
-                    boolean changed = first != null && later != null && firstChecksum != laterChecksum;
+                    long laterChecksum = firstChecksum;
+                    boolean changed = false;
+                    for (int frameAttempt = 0; frameAttempt < 8 && !changed; frameAttempt++) {
+                        later = drawable.getNextFrame(true);
+                        laterChecksum = crossgramE2eBitmapChecksum(later);
+                        changed = first != null && later != null && firstChecksum != laterChecksum;
+                    }
                     if (!expected || drawable.nativePtr == 0 || first == null || later == null || !changed) {
                         android.util.Log.e("CrossgramE2E", "raw_animation_failed format=" + expectedFormat
                                 + " apng=" + apng + " gif=" + gif
@@ -283,8 +285,6 @@
                     android.util.Log.e("CrossgramE2E", "raw_animation_failed reason="
                             + error.getClass().getSimpleName());
                 } finally {
-                    if (first != null) first.recycle();
-                    if (later != null && later != first) later.recycle();
                     if (drawable != null) drawable.recycle();
                 }
             });
