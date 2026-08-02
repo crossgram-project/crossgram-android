@@ -240,7 +240,7 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain('if (command === "stickers")');
     expect(runner).toContain('"messages.getAllStickers"');
     expect(runner).toContain('if (command === "sticker-install")');
-    expect(runner).toContain('stableId(`sticker-set:v6:${providerId}:${packId}`)');
+    expect(runner).toContain('stableId(`sticker-set:v7:${providerId}:${packId}`)');
     expect(runner).toContain("tlLongNumber(value.stickerset.id) === setId");
     expect(runner).toContain('"messages.installStickerSet"');
     expect(runner).toContain("installed sticker pack");
