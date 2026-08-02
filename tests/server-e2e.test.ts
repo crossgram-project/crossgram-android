@@ -65,6 +65,8 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain('"raw-animation-file".equals(command)');
     expect(patched).toContain("CrossgramRawAnimationSniffer");
     expect(patched).toContain("raw_animation_decoded format=");
+    expect(patched).toContain("crossgramE2eBitmapChecksum(first)");
+    expect(patched).toContain("|| !changed");
     expect(patched).toContain("addRecentSticker(");
     expect(patched).toContain("getRecentStickers(MediaDataController.TYPE_IMAGE)");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendSticker(");
@@ -362,6 +364,19 @@ describe("Android server E2E source driver", () => {
     expect(script).toContain('export ALIAS_NAME="$SIGNING_ALIAS"');
     expect(script).toContain('export ALIAS_PASS="$SIGNING_PASSWORD"');
     expect(script).not.toContain("release.keystore.base64");
+  });
+
+  it("runs the built APK on API 35 and requires changing GIF/APNG frames", async () => {
+    const script = await readFile(path.resolve("scripts/ci/run-raw-animation-avd-e2e.sh"), "utf8");
+    const workflow = await readFile(path.resolve(".github/workflows/android-server-e2e.yml"), "utf8");
+
+    expect(script).toContain("two-frame.gif");
+    expect(script).toContain("two-frame.apng");
+    expect(script).toContain("frames_changed=true");
+    expect(script).toContain("raw_animation_failed");
+    expect(workflow).toContain("api-level: 35");
+    expect(workflow).toContain("run-raw-animation-avd-e2e.sh");
+    expect(workflow).toContain('features/raw-animation/**');
   });
 
 });

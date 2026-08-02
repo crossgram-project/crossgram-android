@@ -12,7 +12,11 @@ on:
     paths:
       - "features/server-e2e/**"
       - "features/server-switch/**"
+      - "features/raw-animation/**"
+      - "features/direct-download/**"
       - "scripts/ci/build-e2e-nagram.sh"
+      - "scripts/ci/run-raw-animation-avd-e2e.sh"
+      - "tests/fixtures/raw-animation/**"
       - "src/**"
       - "package.json"
       - "yarn.lock"
@@ -49,6 +53,22 @@ jobs:
         run: corepack enable && yarn install --immutable
       - name: Patch and rebuild Nagram debug APK
         run: bash scripts/ci/build-e2e-nagram.sh "${{ inputs.nagram_ref || 'main' }}"
+      - name: Enable KVM for the API 35 emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify GIF and APNG frames on API 35
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/ci/run-raw-animation-avd-e2e.sh artifacts/e2e-nagram-x86_64
       - uses: actions/upload-artifact@v7
         with:
           name: nagram-direct-function-e2e-x86_64

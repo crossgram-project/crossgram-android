@@ -261,15 +261,19 @@
                     drawable = new org.telegram.ui.Components.AnimatedFileDrawable(
                             file, true, 0, 0, null, null, null, 0, currentAccount, false, null);
                     first = drawable.getFrameAtTime(0, false);
+                    long firstChecksum = crossgramE2eBitmapChecksum(first);
                     long laterMs = drawable.getDurationMs() > 1
                             ? Math.min(500, drawable.getDurationMs() / 2) : 200;
                     later = drawable.getFrameAtTime(laterMs, false);
-                    boolean changed = first != null && later != null && !first.sameAs(later);
-                    if (!expected || drawable.nativePtr == 0 || first == null || later == null) {
+                    long laterChecksum = crossgramE2eBitmapChecksum(later);
+                    boolean changed = first != null && later != null && firstChecksum != laterChecksum;
+                    if (!expected || drawable.nativePtr == 0 || first == null || later == null || !changed) {
                         android.util.Log.e("CrossgramE2E", "raw_animation_failed format=" + expectedFormat
                                 + " apng=" + apng + " gif=" + gif
                                 + " native_ptr=" + drawable.nativePtr
-                                + " first=" + (first != null) + " later=" + (later != null));
+                                + " first=" + (first != null) + " later=" + (later != null)
+                                + " frames_changed=" + changed
+                                + " first_checksum=" + firstChecksum + " later_checksum=" + laterChecksum);
                     } else {
                         android.util.Log.i("CrossgramE2E", "raw_animation_decoded format=" + expectedFormat + " width="
                                 + drawable.getIntrinsicWidth() + " height=" + drawable.getIntrinsicHeight()
@@ -716,6 +720,22 @@
                     + " load_type=" + loadType
                     + " requested_max_id=" + maxId);
             return true;
+    }
+
+    private static long crossgramE2eBitmapChecksum(android.graphics.Bitmap bitmap) {
+        if (bitmap == null) {
+            return Long.MIN_VALUE;
+        }
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        int[] pixels = new int[width * height];
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+        long checksum = 0xcbf29ce484222325L;
+        for (int pixel : pixels) {
+            checksum ^= pixel;
+            checksum *= 0x100000001b3L;
+        }
+        return checksum;
     }
 
     private boolean runCrossgramE2eWithMessage(
