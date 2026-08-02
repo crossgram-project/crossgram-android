@@ -40,13 +40,15 @@ run_animation() {
       return 1
     fi
     if grep -F "raw_animation_decoded format=$format" <<<"$output" \
-      | grep -F "frames_changed=true" >/dev/null; then
+      | grep -F "frames_changed=true" \
+      | grep -F "looped=true" >/dev/null; then
       printf '%s\n' "$output"
       return 0
     fi
     sleep 1
   done
   adb logcat -d -s CrossgramE2E:I CrossgramE2E:E '*:S' >&2
+  adb logcat -d -t 500 >&2
   echo "Timed out waiting for changing $format frames" >&2
   return 1
 }

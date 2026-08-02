@@ -65,10 +65,8 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain('"raw-animation-file".equals(command)');
     expect(patched).toContain("CrossgramRawAnimationSniffer");
     expect(patched).toContain("raw_animation_decoded format=");
-    expect(patched).toContain("drawable.ignoreNoParent = true");
-    expect(patched).toContain("drawable.start()");
-    expect(patched).toContain("drawable.draw(canvas)");
-    expect(patched).toContain("crossgramE2eBitmapChecksum(rendered)");
+    expect(patched).toContain("drawable.getNextFrame(true)");
+    expect(patched).toContain("crossgramE2eBitmapChecksum(frame)");
     expect(patched).toContain("frames_changed=true looped=true");
     expect(patched).not.toContain("getFrameAtTime(");
     expect(patched).toContain("addRecentSticker(");
@@ -377,10 +375,12 @@ describe("Android server E2E source driver", () => {
     expect(script).toContain("two-frame.gif");
     expect(script).toContain("two-frame.apng");
     expect(script).toContain("frames_changed=true");
+    expect(script).toContain("looped=true");
     expect(script).toContain("raw_animation_failed");
     expect(workflow).toContain("api-level: 35");
     expect(workflow).toContain("run-raw-animation-avd-e2e.sh");
     expect(workflow).toContain('features/raw-animation/**');
+    expect(workflow).toContain("if: always()");
   });
 
 });

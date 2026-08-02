@@ -70,6 +70,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash scripts/ci/run-raw-animation-avd-e2e.sh artifacts/e2e-nagram-x86_64
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: nagram-direct-function-e2e-x86_64
           path: artifacts/e2e-nagram-x86_64/
