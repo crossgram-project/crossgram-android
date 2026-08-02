@@ -9,6 +9,7 @@ import type { Upstream } from "../../src/upstreams.js";
 const featureRoot = path.dirname(fileURLToPath(import.meta.url));
 const messageObjectFile = "TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java";
 const imageLoaderFile = "TMessagesProj/src/main/java/org/telegram/messenger/ImageLoader.java";
+const gifVideoFile = "TMessagesProj/jni/gifvideo.cpp";
 const snifferRelative = "org/telegram/messenger/crossgram_animation/CrossgramRawAnimationSniffer.java";
 const ffmpegScripts = [
   "TMessagesProj/jni/build_ffmpeg_clang.sh",
@@ -165,6 +166,41 @@ export function patchFfmpegRawAnimation(initial: string, file: string): string {
   return source;
 }
 
+export function patchGifVideoRawAnimation(initial: string): string {
+  let source = initial.replace(
+    "    return crossgramDurationMs(info);\n}\n\nextern",
+    "    return (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);\n}\n\nextern",
+  );
+  source = source
+    .replace(
+      "dataArr[PARAM_NUM_DURATION] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);",
+      "dataArr[PARAM_NUM_DURATION] = crossgramDurationMs(info);",
+    )
+    .replace(
+      "dataArr[4] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);",
+      "dataArr[4] = crossgramDurationMs(info);",
+    );
+  source = replaceRegexOnce(
+    source,
+    /(?=^extern\s+"C"\s+JNIEXPORT\s+void\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo)/m,
+    `static int32_t crossgramDurationMs(VideoInfo *info) {
+    if (info == nullptr || info->fmt_ctx == nullptr
+            || info->fmt_ctx->duration == AV_NOPTS_VALUE
+            || info->fmt_ctx->duration <= 0
+            || info->fmt_ctx->duration > INT64_C(86400) * AV_TIME_BASE) {
+        return 0;
+    }
+    return (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);
+}
+
+`,
+    "crossgramDurationMs(VideoInfo *info)",
+    gifVideoFile,
+    "avoid APNG AV_NOPTS_VALUE duration overflow",
+  );
+  return source;
+}
+
 async function patchOptionalFile(
   root: string,
   relative: string,
@@ -198,6 +234,10 @@ export async function applyRawAnimation(root: string, _upstream: Upstream): Prom
   const loaderTarget = path.join(root, imageLoaderFile);
   if (await writeUtf8IfChanged(loaderTarget, patchImageLoaderRawAnimation(await readUtf8(loaderTarget)))) {
     changedFiles.push(imageLoaderFile);
+  }
+  const gifVideoTarget = path.join(root, gifVideoFile);
+  if (await writeUtf8IfChanged(gifVideoTarget, patchGifVideoRawAnimation(await readUtf8(gifVideoTarget)))) {
+    changedFiles.push(gifVideoFile);
   }
   for (const script of ffmpegScripts) {
     await patchOptionalFile(root, script, patchFfmpegRawAnimation, changedFiles);

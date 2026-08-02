@@ -261,7 +261,8 @@
                     drawable = new org.telegram.ui.Components.AnimatedFileDrawable(
                             file, true, 0, 0, null, null, null, 0, currentAccount, false, null);
                     first = drawable.getFrameAtTime(0, false);
-                    long laterMs = Math.max(1, Math.min(500, drawable.getDurationMs() / 2));
+                    long laterMs = drawable.getDurationMs() > 1
+                            ? Math.min(500, drawable.getDurationMs() / 2) : 200;
                     later = drawable.getFrameAtTime(laterMs, false);
                     boolean changed = first != null && later != null && !first.sameAs(later);
                     if (!expected || drawable.nativePtr == 0 || first == null || later == null) {

@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   applyRawAnimation,
   patchFfmpegRawAnimation,
+  patchGifVideoRawAnimation,
   patchImageLoaderRawAnimation,
   patchMessageObjectRawAnimation,
 } from "../features/raw-animation/patch.js";
@@ -68,6 +69,15 @@ const ffmpegFixture = `./configure \\
   --enable-hwaccels \\
 `;
 
+const gifVideoFixture = `
+extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo() {
+    dataArr[PARAM_NUM_DURATION] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);
+}
+extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nCreateDecoder() {
+    dataArr[4] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);
+}
+`;
+
 describe("Android raw GIF/APNG patch", () => {
   it("routes APNG MIME and .apng documents through the existing GIF UI", () => {
     const patched = patchMessageObjectRawAnimation(messageObjectFixture);
@@ -99,6 +109,13 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patchFfmpegRawAnimation(patched, "build_ffmpeg.sh")).toBe(patched);
   });
 
+  it("does not expose APNG's unknown duration as a multi-week integer", () => {
+    const patched = patchGifVideoRawAnimation(gifVideoFixture);
+    expect(patched).toContain("info->fmt_ctx->duration == AV_NOPTS_VALUE");
+    expect(patched.match(/crossgramDurationMs\(info\)/g)).toHaveLength(2);
+    expect(patchGifVideoRawAnimation(patched)).toBe(patched);
+  });
+
   it("installs the sniffer and patches a source tree", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "crossgram-raw-animation-"));
     try {
@@ -109,6 +126,7 @@ describe("Android raw GIF/APNG patch", () => {
       const ffmpeg = path.join(root, "TMessagesProj/jni");
       await mkdir(ffmpeg, { recursive: true });
       await writeFile(path.join(ffmpeg, "build_ffmpeg_clang.sh"), ffmpegFixture, "utf8");
+      await writeFile(path.join(ffmpeg, "gifvideo.cpp"), gifVideoFixture, "utf8");
 
       const changed = await applyRawAnimation(root, getUpstream("nagram"));
       expect(changed).toContain(
