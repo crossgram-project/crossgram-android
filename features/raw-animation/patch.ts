@@ -17,8 +17,12 @@ const ffmpegScripts = [
 ] as const;
 
 export function patchMessageObjectRawAnimation(initial: string): string {
-  let source = editDeclarationBody(
-    initial,
+  let source = initial.replaceAll(
+    "isAnyKindOfStickerOrEmoji(document)",
+    "isCrossgramStickerOrEmojiDocument(document)",
+  );
+  source = editDeclarationBody(
+    source,
     /public\s+static\s+boolean\s+isGifDocument\s*\(\s*WebFile\s+document\s*\)/,
     messageObjectFile,
     "MessageObject.isGifDocument(WebFile)",
@@ -34,7 +38,7 @@ export function patchMessageObjectRawAnimation(initial: string): string {
     "MessageObject.isGifDocument(Document, boolean)",
     (body) => body.replace(
       /return\s+document\s*!=\s*null\s*&&\s*document\.mime_type\s*!=\s*null\s*&&\s*\(document\.mime_type\.equals\("image\/gif"\)\s*&&\s*!hasGroup\s*\|\|\s*isNewGifDocument\(document\)\s*\);/,
-      'return document != null && document.mime_type != null && ((document.mime_type.equals("image/gif") || isAnimatedPngDocument(document)) && !hasGroup && !isAnyKindOfStickerOrEmoji(document) || isNewGifDocument(document));',
+      'return document != null && document.mime_type != null && ((document.mime_type.equals("image/gif") || isAnimatedPngDocument(document)) && !hasGroup && !isCrossgramStickerOrEmojiDocument(document) || isNewGifDocument(document));',
     ),
   );
   source = editDeclarationBody(
@@ -67,7 +71,7 @@ export function patchMessageObjectRawAnimation(initial: string): string {
       "return (isAnimatedStickerDocument(document, true) || isVideoStickerDocument(document) || isRawAnimatedStickerDocument(document)) &&",
     ),
   );
-  return replaceRegexOnce(
+  source = replaceRegexOnce(
     source,
     /(?=^[ \t]*public\s+static\s+boolean\s+isDocumentHasThumb\s*\()/m,
     `    /** APNG documents use the existing GIF/AnimatedFileDrawable UI pipeline. */
@@ -94,8 +98,20 @@ export function patchMessageObjectRawAnimation(initial: string): string {
                 && !"image/apng".equalsIgnoreCase(mimeType);
     }
 
+    public static boolean isCrossgramStickerOrEmojiDocument(TLRPC.Document document) {
+        if (document == null) return false;
+        for (int index = 0, size = document.attributes.size(); index < size; index++) {
+            TLRPC.DocumentAttribute attribute = document.attributes.get(index);
+            if (attribute instanceof TLRPC.TL_documentAttributeSticker
+                    || attribute instanceof TLRPC.TL_documentAttributeCustomEmoji) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static boolean isRawAnimatedStickerDocument(TLRPC.Document document) {
-        if (document == null || !isAnyKindOfStickerOrEmoji(document)) return false;
+        if (document == null || !isCrossgramStickerOrEmojiDocument(document)) return false;
         if ("image/gif".equalsIgnoreCase(document.mime_type) || isAnimatedPngDocument(document)) {
             return true;
         }
@@ -109,6 +125,26 @@ export function patchMessageObjectRawAnimation(initial: string): string {
     "isAnimatedPngDocument(TLRPC.Document document)",
     messageObjectFile,
     "add APNG document classification",
+  );
+  return replaceRegexOnce(
+    source,
+    /(?=^[ \t]*public\s+static\s+boolean\s+isRawAnimatedStickerDocument\s*\()/m,
+    `    public static boolean isCrossgramStickerOrEmojiDocument(TLRPC.Document document) {
+        if (document == null) return false;
+        for (int index = 0, size = document.attributes.size(); index < size; index++) {
+            TLRPC.DocumentAttribute attribute = document.attributes.get(index);
+            if (attribute instanceof TLRPC.TL_documentAttributeSticker
+                    || attribute instanceof TLRPC.TL_documentAttributeCustomEmoji) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+`,
+    "isCrossgramStickerOrEmojiDocument(TLRPC.Document document)",
+    messageObjectFile,
+    "add upstream-independent sticker and custom emoji classification",
   );
 }
 

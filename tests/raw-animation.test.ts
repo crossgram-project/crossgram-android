@@ -45,6 +45,25 @@ public class MessageObject {
         return (isAnimatedStickerDocument(document, true) || isVideoStickerDocument(document)) && LiteMode.isEnabled(1);
     }
     public static boolean isDocumentHasThumb(TLRPC.Document document) { return false; }
+    private static boolean isNewGifDocument(Object document) { return false; }
+    private static boolean isAnimatedStickerDocument(TLRPC.Document document, boolean allowWithoutSet) { return false; }
+    private static boolean isVideoStickerDocument(TLRPC.Document document) { return false; }
+    public static final class WebFile { public String mime_type = ""; }
+    public static final class FileLoader {
+        public static String getDocumentFileName(TLRPC.Document document) { return ""; }
+    }
+    public static final class LiteMode {
+        public static boolean isEnabled(int flag) { return true; }
+    }
+    public static final class TLRPC {
+        public static class Document {
+            public String mime_type = "";
+            public java.util.ArrayList<DocumentAttribute> attributes = new java.util.ArrayList<>();
+        }
+        public static class DocumentAttribute {}
+        public static final class TL_documentAttributeSticker extends DocumentAttribute {}
+        public static final class TL_documentAttributeCustomEmoji extends DocumentAttribute {}
+    }
 }`;
 
 const imageLoaderFixture = `package org.telegram.messenger;
@@ -132,13 +151,29 @@ describe("Android raw GIF/APNG patch", () => {
     const patched = patchMessageObjectRawAnimation(messageObjectFixture);
     expect(patched).toContain('document.mime_type.equals("image/apng")');
     expect(patched).toContain("isAnimatedPngDocument(document)");
-    expect(patched).toContain("!isAnyKindOfStickerOrEmoji(document)");
+    expect(patched).toContain("!isCrossgramStickerOrEmojiDocument(document)");
+    expect(patched).toContain("attribute instanceof TLRPC.TL_documentAttributeSticker");
+    expect(patched).toContain("attribute instanceof TLRPC.TL_documentAttributeCustomEmoji");
+    expect(patched).not.toContain("isAnyKindOfStickerOrEmoji(document)");
     expect(patched).toContain('endsWith(".apng")');
     expect(patched).toContain("isRawStickerMime(document.mime_type)");
     expect(patched).toContain('"image/png".equalsIgnoreCase(mimeType)');
     expect(patched).toContain('"image/jpeg".equalsIgnoreCase(mimeType)');
     expect(patched).toContain("isRawAnimatedStickerDocument(document)");
     expect(patchMessageObjectRawAnimation(patched)).toBe(patched);
+  });
+
+  it("compiles against Telegram's older MessageObject surface without isAnyKindOfStickerOrEmoji", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "crossgram-message-object-javac-"));
+    try {
+      const packageDir = path.join(root, "org", "telegram", "messenger");
+      await mkdir(packageDir, { recursive: true });
+      const target = path.join(packageDir, "MessageObject.java");
+      await writeFile(target, patchMessageObjectRawAnimation(messageObjectFixture), "utf8");
+      await exec("javac", [target]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("sniffs downloaded image/png bytes before selecting a static decoder", () => {
