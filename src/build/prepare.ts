@@ -13,6 +13,13 @@ const variantAbis: Record<BuildVariant, readonly string[]> = {
   universal: ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"],
 };
 
+const nativeTargetByAbi: Record<string, string> = {
+  "armeabi-v7a": "arm",
+  "arm64-v8a": "arm64",
+  x86: "x86",
+  x86_64: "x86_64",
+};
+
 function gradleOverride(abis: readonly string[], kotlinDsl: boolean, includeSplits: boolean): string {
   const values = abis.map((abi) => `'${abi}'`).join(", ");
   if (kotlinDsl) {
@@ -102,6 +109,23 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     const includeSplits = relative === upstream.appGradle;
     const updated = updateGradleOverride(source, abis, relative.endsWith(".kts"), includeSplits);
     if (await writeUtf8IfChanged(file, updated)) changed.push(relative);
+  }
+  if (upstream.id === "forkgram") {
+    const relative = "TMessagesProj/build.gradle";
+    const file = path.join(root, relative);
+    const source = await readUtf8(file);
+    const targets = abis.map((abi) => nativeTargetByAbi[abi]);
+    if (targets.some((target) => !target)) {
+      throw new PatchError(relative, `unsupported Forkgram native ABI list: ${abis.join(", ")}`);
+    }
+    const pattern = /^([ \t]*commandLine\s+'python3',\s*'prepare\.py',\s*'silent',\s*'ndk='\s*\+\s*ndkDir)(?:,\s*'(?:arm|arm64|x86|x86_64)')+(?:\s*\/\/ CROSSGRAM NATIVE TARGETS[^\r\n]*)?$/m;
+    const matches = [...source.matchAll(new RegExp(pattern.source, "gm"))];
+    if (matches.length !== 1) {
+      throw new PatchError(relative, `expected one Forkgram native dependency target list, found ${matches.length}`);
+    }
+    const args = targets.map((target) => `'${target}'`).join(", ");
+    const updated = source.replace(pattern, `$1, ${args} // CROSSGRAM NATIVE TARGETS`);
+    if (await writeUtf8IfChanged(file, updated) && !changed.includes(relative)) changed.push(relative);
   }
   if (upstream.id === "telegram") {
     const relative = "gradle/wrapper/gradle-wrapper.properties";

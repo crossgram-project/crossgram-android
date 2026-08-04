@@ -168,4 +168,37 @@ describe("prepareBuild", () => {
     expect(await readFile(path.join(root, "gradle/wrapper/gradle-wrapper.properties"), "utf8"))
       .toBe(wrapper);
   });
+
+  it("limits Forkgram's buildNativeDeps prepare.py invocation to the requested ABI", async () => {
+    const root = await fixture(
+      "TMessagesProj/build.gradle",
+      [
+        "plugins { id 'com.android.library' }",
+        "android {}",
+        "task buildNativeDeps {",
+        "    doFirst {",
+        "        commandLine 'python3', 'prepare.py', 'silent', 'ndk=' + ndkDir, 'arm', 'arm64'",
+        "    }",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await mkdir(path.join(root, "TMessagesProj_App"), { recursive: true });
+    await writeFile(
+      path.join(root, "TMessagesProj_App/build.gradle"),
+      "plugins { id 'com.android.application' }\nandroid {}\n",
+      "utf8",
+    );
+
+    await prepareBuild(root, getUpstream("forkgram"), "arm64");
+    let source = await readFile(path.join(root, "TMessagesProj/build.gradle"), "utf8");
+    expect(source).toContain("'ndk=' + ndkDir, 'arm64' // CROSSGRAM NATIVE TARGETS");
+    expect(source).not.toContain("'ndk=' + ndkDir, 'arm', 'arm64'");
+    expect(await prepareBuild(root, getUpstream("forkgram"), "arm64")).toEqual([]);
+
+    await prepareBuild(root, getUpstream("forkgram"), "x86_64");
+    source = await readFile(path.join(root, "TMessagesProj/build.gradle"), "utf8");
+    expect(source).toContain("'ndk=' + ndkDir, 'x86_64' // CROSSGRAM NATIVE TARGETS");
+    expect(source.match(/CROSSGRAM NATIVE TARGETS/g)).toHaveLength(1);
+  });
 });
