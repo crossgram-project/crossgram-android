@@ -208,13 +208,13 @@ describe("Android server E2E source driver", () => {
 
   it("adds an idempotent debug-only direct HTTP failure hook", () => {
     const source = `public final class CrossgramDirectDownload {
-    private static final ConcurrentHashMap<Integer, HttpURLConnection[]> HTTP_REQUESTS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Integer, Transfer> HTTP_REQUESTS = new ConcurrentHashMap<>();
     private CrossgramDirectDownload() {}
     void resolved(String url, long expiresAt) {
         callback.onResult(new ResolvedUrl(url, expiresAt), null);
     }
-    void range(String url, long offset, int limit, HttpURLConnection[] handle) throws Exception {
-        result = CrossgramDirectHttp.loadRange(url, offset, limit, handle);
+    Transfer open(String url) throws Exception {
+        return new Transfer(new CrossgramDirectHttp.Transfer(url));
     }
 }`;
     const patched = patchDirectDownloadE2eSource(source, "CrossgramDirectDownload.java");

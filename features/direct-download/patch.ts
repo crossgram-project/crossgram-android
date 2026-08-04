@@ -40,12 +40,45 @@ export function patchFileLoadOperation(initial: string): string {
     "org.telegram.messenger.crossgram_direct.CrossgramDirectDownload",
     operationFile,
   );
+  if (!source.includes("private CrossgramDirectDownload.Transfer crossgramDirectTransfer;")) {
+    source = source.replace(
+      "    private long crossgramDirectUrlExpiresAt;\n    private boolean crossgramDirectResolving;",
+      "    private long crossgramDirectUrlExpiresAt;\n    private CrossgramDirectDownload.Transfer crossgramDirectTransfer;\n    private boolean crossgramDirectResolving;",
+    )
+    .replace(
+      "&& (crossgramDirectUrl == null || crossgramDirectUrlExpiresAt <= System.currentTimeMillis())) {",
+      "&& crossgramDirectTransfer == null\n                && (crossgramDirectUrl == null || crossgramDirectUrlExpiresAt <= System.currentTimeMillis())) {",
+    )
+    .replace(
+      `                        crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
+                        CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "url_resolved");`,
+      `                        crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url);
+                        if (crossgramDirectTransfer != null) {
+                            crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
+                            CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "http_transfer_started");
+                        } else {
+                            crossgramDirectDisabled = true;
+                            crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_RELAY;
+                            CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "http_transfer_open_failed");
+                        }`,
+    )
+    .replace("} else if (crossgramDirectUrl == null) {", "} else if (crossgramDirectTransfer == null) {")
+    .replace(
+      "CrossgramDirectDownload.loadRange(\n                        crossgramDirectUrl,",
+      "CrossgramDirectDownload.read(\n                        crossgramDirectTransfer,",
+    )
+    .replace(
+      "if (directError != null || bytes == null || bytes.length == 0) {\n                        clearOperation(requestInfo, false, false);",
+      "if (directError != null || bytes == null) {\n                        clearOperation(requestInfo, false, false);\n                        crossgramDirectTransfer = null;",
+    );
+  }
   source = replaceRegexOnce(
     source,
     /(^[ \t]*protected\s+boolean\s+requestingReference;[ \t]*$)/m,
     `$1
     private String crossgramDirectUrl;
     private long crossgramDirectUrlExpiresAt;
+    private CrossgramDirectDownload.Transfer crossgramDirectTransfer;
     private boolean crossgramDirectResolving;
     private boolean crossgramDirectDisabled;
     private String crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_RELAY;`,
@@ -63,6 +96,7 @@ export function patchFileLoadOperation(initial: string): string {
         body,
         /(^[ \t]*int\s+count\s*=\s*1;[ \t]*$)/m,
         `        if (!crossgramDirectDisabled && CrossgramDirectDownload.supports(location)
+                && crossgramDirectTransfer == null
                 && (crossgramDirectUrl == null || crossgramDirectUrlExpiresAt <= System.currentTimeMillis())) {
             if (!crossgramDirectResolving) {
                 crossgramDirectResolving = true;
@@ -72,8 +106,15 @@ export function patchFileLoadOperation(initial: string): string {
                     if (resolved != null) {
                         crossgramDirectUrl = resolved.url;
                         crossgramDirectUrlExpiresAt = resolved.expiresAt;
-                        crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
-                        CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "url_resolved");
+                        crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url);
+                        if (crossgramDirectTransfer != null) {
+                            crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
+                            CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "http_transfer_started");
+                        } else {
+                            crossgramDirectDisabled = true;
+                            crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_RELAY;
+                            CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "http_transfer_open_failed");
+                        }
                     } else {
                         crossgramDirectDisabled = true;
                         crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_RELAY;
@@ -92,7 +133,7 @@ $1`,
       updated = replaceRegexOnce(
         updated,
         /\}\s+else\s+\{\s*TLRPC\.TL_upload_getFile req = new TLRPC\.TL_upload_getFile\(\);([\s\S]*?)request = req;\s*\}/,
-        `} else if (crossgramDirectUrl == null) {
+        `} else if (crossgramDirectTransfer == null) {
                     TLRPC.TL_upload_getFile req = new TLRPC.TL_upload_getFile();$1request = req;
                 } else {
                     request = null;
@@ -105,11 +146,12 @@ $1`,
         updated,
         /(^[ \t]*final\s+int\s+requestToken\s*=\s*requestInfo\.requestToken\s*=\s*ConnectionsManager)/m,
         `            if (request == null) {
-                final int directToken = requestInfo.requestToken = CrossgramDirectDownload.loadRange(
-                        crossgramDirectUrl, requestInfo.offset, requestInfo.chunkSize, (bytes, directError) -> {
+                final int directToken = requestInfo.requestToken = CrossgramDirectDownload.read(
+                        crossgramDirectTransfer, requestInfo.offset, requestInfo.chunkSize, (bytes, directError) -> {
                     if (requestInfo.cancelled || state != stateDownloading) return;
-                    if (directError != null || bytes == null || bytes.length == 0) {
+                    if (directError != null || bytes == null) {
                         clearOperation(requestInfo, false, false);
+                        crossgramDirectTransfer = null;
                         crossgramDirectDisabled = true;
                         crossgramDirectUrl = null;
                         crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_RELAY;
@@ -137,12 +179,25 @@ $1`,
                 continue;
             }
 $1`,
-        "CrossgramDirectDownload.loadRange(",
+        "CrossgramDirectDownload.read(",
         operationFile,
-        "feed direct HTTP chunks into the existing file assembler",
+        "feed one normal HTTP transfer into the existing file assembler",
       );
       return updated;
     },
+  );
+  source = editDeclarationBody(
+    source,
+    /private\s+void\s+cleanup\s*\(/,
+    operationFile,
+    "FileLoadOperation.cleanup",
+    (body) => body.includes("CrossgramDirectDownload.close(crossgramDirectTransfer);")
+      ? body
+      : `
+        if (crossgramDirectTransfer != null) {
+            CrossgramDirectDownload.close(crossgramDirectTransfer);
+            crossgramDirectTransfer = null;
+        }${body}`,
   );
   source = replaceRegexOnce(
     source,

@@ -11,6 +11,8 @@ const exec = promisify(execFile);
 const payload = Buffer.from("crossgram-direct-client-e2e-payload");
 let directory = "";
 let baseUrl = "";
+let requests = 0;
+let rangeHeaders: Array<string | undefined> = [];
 let closeServer: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
@@ -23,14 +25,24 @@ beforeAll(async () => {
   );
   await writeFile(path.join(packageDir, "Harness.java"), `package org.telegram.messenger.crossgram_direct;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 public final class Harness {
   public static void main(String[] args) throws Exception {
-    try {
-      byte[] bytes = CrossgramDirectHttp.loadRange(args[0], Long.parseLong(args[1]), Integer.parseInt(args[2]), null);
-      System.out.print("DIRECT:" + new String(bytes, StandardCharsets.UTF_8));
-    } catch (Exception error) {
-      System.out.print("RELAY:" + error.getMessage());
-    }
+    CrossgramDirectHttp.Transfer transfer = new CrossgramDirectHttp.Transfer(args[0]);
+    CountDownLatch done = new CountDownLatch(2);
+    String[] results = new String[2];
+    transfer.read(1, Long.parseLong(args[1]), Integer.parseInt(args[2]), (bytes, error) -> {
+      results[0] = error != null ? "RELAY:" + error : new String(bytes, StandardCharsets.UTF_8);
+      done.countDown();
+    });
+    transfer.read(2, Long.parseLong(args[3]), Integer.parseInt(args[4]), (bytes, error) -> {
+      results[1] = error != null ? "RELAY:" + error : new String(bytes, StandardCharsets.UTF_8);
+      done.countDown();
+    });
+    if (!done.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("transfer timed out");
+    transfer.close();
+    System.out.print(results[0] + "|" + results[1]);
   }
 }
 `, "utf8");
@@ -40,24 +52,18 @@ public final class Harness {
   ]);
 
   const server = createServer((request, response) => {
-    if (request.url === "/no-range") {
+    requests++;
+    rangeHeaders.push(request.headers.range);
+    if (request.url === "/whole") {
       response.writeHead(200, { "content-length": payload.length });
       response.end(payload);
       return;
     }
-    const match = /^bytes=(\d+)-(\d+)$/.exec(request.headers.range ?? "");
-    if (!match) {
-      response.writeHead(400).end();
+    if (request.url === "/failure") {
+      response.writeHead(503).end("unavailable");
       return;
     }
-    const start = Number(match[1]);
-    const end = Math.min(Number(match[2]), payload.length - 1);
-    const body = payload.subarray(start, end + 1);
-    response.writeHead(206, {
-      "content-length": body.length,
-      "content-range": `bytes ${start}-${end}/${payload.length}`,
-    });
-    response.end(body);
+    response.writeHead(404).end();
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -71,23 +77,36 @@ afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
-async function run(url: string, offset: number, limit: number): Promise<string> {
+async function run(url: string, firstOffset: number, firstLimit: number,
+  secondOffset: number, secondLimit: number): Promise<string> {
   const result = await exec("java", [
     "-cp", directory,
     "org.telegram.messenger.crossgram_direct.Harness",
     url,
-    String(offset),
-    String(limit),
+    String(firstOffset),
+    String(firstLimit),
+    String(secondOffset),
+    String(secondLimit),
   ]);
   return result.stdout;
 }
 
 describe("Android direct HTTP client e2e", () => {
-  it("downloads the requested byte range and reports direct transport", async () => {
-    expect(await run(`${baseUrl}/range`, 10, 8)).toBe(`DIRECT:${payload.subarray(10, 18).toString()}`);
+  it("serves multiple FileLoadOperation parts from one normal HTTP request", async () => {
+    requests = 0;
+    rangeHeaders = [];
+    expect(await run(`${baseUrl}/whole`, 5, 8, 13, 9)).toBe(
+      `${payload.subarray(5, 13).toString()}|${payload.subarray(13, 22).toString()}`,
+    );
+    expect(requests).toBe(1);
+    expect(rangeHeaders).toEqual([undefined]);
   });
 
-  it("rejects a server that ignores Range so FileLoadOperation can use relay", async () => {
-    expect(await run(`${baseUrl}/no-range`, 5, 8)).toContain("RELAY:direct HTTP expected 206, got 200");
+  it("reports one failed whole-file request so FileLoadOperation can fall back to relay", async () => {
+    requests = 0;
+    expect(await run(`${baseUrl}/failure`, 5, 8, 13, 9)).toContain(
+      "RELAY:direct HTTP expected 200, got 503",
+    );
+    expect(requests).toBe(1);
   });
 });

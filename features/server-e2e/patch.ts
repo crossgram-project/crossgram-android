@@ -177,7 +177,7 @@ export function patchNativeE2eSource(initial: string, file: string): string {
 export function patchDirectDownloadE2eSource(initial: string, file: string): string {
   let source = replaceRegexOnce(
     initial,
-    /(^[ \t]*private static final ConcurrentHashMap<Integer, HttpURLConnection\[\]> HTTP_REQUESTS = new ConcurrentHashMap<>\(\);[ \t]*$)/m,
+    /(^[ \t]*private static final ConcurrentHashMap<Integer, Transfer> HTTP_REQUESTS = new ConcurrentHashMap<>\(\);[ \t]*$)/m,
     `$1
     private static volatile boolean crossgramE2eForceHttpFailure;`,
     "crossgramE2eForceHttpFailure",
@@ -212,11 +212,11 @@ $1callback.onResult(new ResolvedUrl(url, expiresAt), null);`,
   );
   source = replaceRegexOnce(
     source,
-    /^([ \t]*)result = CrossgramDirectHttp\.loadRange\(url, offset, limit, handle\);[ \t]*$/m,
+    /^([ \t]*)return new Transfer\(new CrossgramDirectHttp\.Transfer\(url\)\);[ \t]*$/m,
     `$1if (crossgramE2eForceHttpFailure) {
 $1    Thread.sleep(8000);
 $1}
-$1result = CrossgramDirectHttp.loadRange(url, offset, limit, handle);`,
+$1return new Transfer(new CrossgramDirectHttp.Transfer(url));`,
     "Thread.sleep(8000);",
     file,
     "keep the forced-fallback loading state visible for UI screenshots",

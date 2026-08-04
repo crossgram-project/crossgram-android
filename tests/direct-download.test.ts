@@ -57,6 +57,10 @@ public class FileLoadOperation {
         ConnectionsManager.getInstance(currentAccount).failNotRunningRequest(token);
     }
 
+    private void cleanup() {
+        closeFiles();
+    }
+
     public void setDelegate(Object delegate) {}
 }
 `;
@@ -97,11 +101,13 @@ public class ChatMessageCell {
 const exec = promisify(execFile);
 
 describe("Android direct-download patch", () => {
-  it("injects URL resolution, HTTP chunks, fallback, cancellation, and observability idempotently", () => {
+  it("injects URL resolution, one HTTP transfer, fallback, cancellation, and observability idempotently", () => {
     const patched = patchFileLoadOperation(fixture);
     expect(patched).toContain("CrossgramDirectDownload.resolve(currentAccount, datacenterId, location");
     expect(patched).toContain("CrossgramDirectDownload.begin(fileName);");
-    expect(patched).toContain("CrossgramDirectDownload.loadRange(");
+    expect(patched).toContain("CrossgramDirectDownload.open(resolved.url)");
+    expect(patched).toContain("CrossgramDirectDownload.read(");
+    expect(patched).not.toContain("CrossgramDirectDownload.loadRange(");
     expect(patched).toContain("clearOperation(requestInfo, false, false);");
     expect(patched).toContain("buffer.position(0);");
     expect(patched).toContain("request = null;");
@@ -109,6 +115,7 @@ describe("Android direct-download patch", () => {
     expect(patched).toContain("public String getCrossgramDownloadTransport()");
     expect(patched).toContain("CrossgramDirectDownload.cancelRequest(currentAccount, token, true)");
     expect(patched).toContain("CrossgramDirectDownload.failNotRunningRequest(currentAccount, token)");
+    expect(patched).toContain("CrossgramDirectDownload.close(crossgramDirectTransfer);");
     expect(patchFileLoadOperation(patched)).toBe(patched);
   });
 
@@ -161,6 +168,7 @@ describe("Android direct-download patch", () => {
     expect(runtime).toContain("supports(Object parentObject)");
     expect(runtime).toContain('"m".equals(location.thumb_size)');
     expect(runtime).toContain("CrossgramBridgeFileReference.supports(reference)");
+    expect(runtime).not.toContain('optBoolean("supportsRange"');
   });
 
   it("recognizes media, raw sticker, and raw reaction references without accepting malformed input", async () => {
@@ -240,6 +248,43 @@ public final class Harness {
     const migrated = patchFileLoadOperation(previous);
     expect(migrated).toContain("clearOperation(requestInfo, false, false);");
     expect(migrated).not.toContain("requestedBytesCount -= requestInfo.chunkSize;");
+  });
+
+  it("migrates the old per-range HTTP shim to one normal transfer", () => {
+    const current = patchFileLoadOperation(fixture);
+    const previous = current
+      .replace("    private CrossgramDirectDownload.Transfer crossgramDirectTransfer;\n", "")
+      .replace(
+        "&& crossgramDirectTransfer == null\n                && (crossgramDirectUrl == null || crossgramDirectUrlExpiresAt <= System.currentTimeMillis())) {",
+        "&& (crossgramDirectUrl == null || crossgramDirectUrlExpiresAt <= System.currentTimeMillis())) {",
+      )
+      .replace(
+        `                        crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url);
+                        if (crossgramDirectTransfer != null) {
+                            crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
+                            CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "http_transfer_started");
+                        } else {
+                            crossgramDirectDisabled = true;
+                            crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_RELAY;
+                            CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "http_transfer_open_failed");
+                        }`,
+        `                        crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
+                        CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "url_resolved");`,
+      )
+      .replace("} else if (crossgramDirectTransfer == null) {", "} else if (crossgramDirectUrl == null) {")
+      .replace(
+        "CrossgramDirectDownload.read(\n                        crossgramDirectTransfer,",
+        "CrossgramDirectDownload.loadRange(\n                        crossgramDirectUrl,",
+      )
+      .replace(
+        "if (directError != null || bytes == null) {\n                        clearOperation(requestInfo, false, false);\n                        crossgramDirectTransfer = null;",
+        "if (directError != null || bytes == null || bytes.length == 0) {\n                        clearOperation(requestInfo, false, false);",
+      );
+
+    const migrated = patchFileLoadOperation(previous);
+    expect(migrated).toContain("CrossgramDirectDownload.open(resolved.url)");
+    expect(migrated).toContain("CrossgramDirectDownload.read(");
+    expect(migrated).not.toContain("CrossgramDirectDownload.loadRange(");
   });
 
   it("installs all Java runtime files from the packaged template tree", async () => {

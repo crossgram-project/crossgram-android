@@ -9,7 +9,6 @@ import org.telegram.tgnet.OutputSerializedData;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 
-import java.net.HttpURLConnection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -21,15 +20,23 @@ public final class CrossgramDirectDownload {
 
     private static final int GET_FILE_URL_CONSTRUCTOR = 0x7520f6ea;
     private static final AtomicInteger NEXT_HTTP_TOKEN = new AtomicInteger(-1);
-    private static final ConcurrentHashMap<Integer, HttpURLConnection[]> HTTP_REQUESTS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Integer, Transfer> HTTP_REQUESTS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, String> REPORTED_TRANSPORTS = new ConcurrentHashMap<>();
 
     public interface ResolveCallback {
         void onResult(ResolvedUrl result, String error);
     }
 
-    public interface RangeCallback {
+    public interface ReadCallback {
         void onResult(byte[] bytes, String error);
+    }
+
+    public static final class Transfer {
+        private final CrossgramDirectHttp.Transfer http;
+
+        private Transfer(CrossgramDirectHttp.Transfer http) {
+            this.http = http;
+        }
     }
 
     public static final class ResolvedUrl {
@@ -97,8 +104,7 @@ public final class CrossgramDirectDownload {
                 String url = json.getString("url");
                 long expiresAt = json.getLong("expiresAt");
                 if ((!url.startsWith("https://") && !url.startsWith("http://"))
-                        || expiresAt <= System.currentTimeMillis()
-                        || !json.optBoolean("supportsRange", false)) {
+                        || expiresAt <= System.currentTimeMillis()) {
                     throw new IllegalArgumentException("invalid direct URL metadata");
                 }
                 callback.onResult(new ResolvedUrl(url, expiresAt), null);
@@ -108,24 +114,34 @@ public final class CrossgramDirectDownload {
         }, null, null, 0, dcId, ConnectionsManager.ConnectionTypeGeneric, true);
     }
 
-    public static int loadRange(String url, long offset, int limit, RangeCallback callback) {
+    public static Transfer open(String url) {
+        try {
+            return new Transfer(new CrossgramDirectHttp.Transfer(url));
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    public static int read(Transfer transfer, long offset, int limit, ReadCallback callback) {
+        if (transfer == null) {
+            callback.onResult(null, "DIRECT_HTTP_NOT_OPEN");
+            return 0;
+        }
         int token = NEXT_HTTP_TOKEN.getAndDecrement();
-        HttpURLConnection[] handle = new HttpURLConnection[1];
-        HTTP_REQUESTS.put(token, handle);
-        Utilities.globalQueue.postRunnable(() -> {
-            byte[] result = null;
-            String error = null;
-            try {
-                result = CrossgramDirectHttp.loadRange(url, offset, limit, handle);
-            } catch (Exception exception) {
-                error = exception.getMessage() != null ? exception.getMessage() : exception.getClass().getSimpleName();
-            }
-            if (HTTP_REQUESTS.remove(token) != handle) return;
-            byte[] finalResult = result;
-            String finalError = error;
-            Utilities.stageQueue.postRunnable(() -> callback.onResult(finalResult, finalError));
+        HTTP_REQUESTS.put(token, transfer);
+        transfer.http.read(token, offset, limit, (bytes, error) -> {
+            if (HTTP_REQUESTS.remove(token) != transfer) return;
+            Utilities.stageQueue.postRunnable(() -> callback.onResult(bytes, error));
         });
         return token;
+    }
+
+    public static void close(Transfer transfer) {
+        if (transfer == null) return;
+        for (Integer token : HTTP_REQUESTS.keySet()) {
+            if (HTTP_REQUESTS.remove(token, transfer)) transfer.http.cancel(token);
+        }
+        transfer.http.close();
     }
 
     public static void cancelRequest(int account, int token, boolean notifyServer) {
@@ -133,12 +149,12 @@ public final class CrossgramDirectDownload {
     }
 
     public static void cancelRequest(int account, int token, boolean notifyServer, Runnable callback) {
-        HttpURLConnection[] handle = HTTP_REQUESTS.remove(token);
-        if (handle == null) {
+        Transfer transfer = HTTP_REQUESTS.remove(token);
+        if (transfer == null) {
             ConnectionsManager.getInstance(account).cancelRequest(token, notifyServer, callback);
             return;
         }
-        if (handle[0] != null) handle[0].disconnect();
+        transfer.http.cancel(token);
         if (callback != null) Utilities.stageQueue.postRunnable(callback);
     }
 
