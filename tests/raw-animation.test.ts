@@ -93,6 +93,40 @@ extern "C" JNIEXPORT jint JNICALL Java_org_telegram_ui_Components_AnimatedFileNa
 }
 `;
 
+const drawableGifVideoFixture = gifVideoFixture
+  .replaceAll("AnimatedFileNative_nGet", "AnimatedFileDrawable_get")
+  .replaceAll("AnimatedFileNative_nSeek", "AnimatedFileDrawable_seek")
+  .replaceAll("AnimatedFileNative_nCreate", "AnimatedFileDrawable_create")
+  .replace(
+    "if (bitmap != nullptr && (info->frame->format == AV_PIX_FMT_YUV420P || info->frame->format == AV_PIX_FMT_BGRA || info->frame->format == AV_PIX_FMT_YUVJ420P || info->frame->format == AV_PIX_FMT_YUV444P || info->frame->format == AV_PIX_FMT_YUVA420P)) {",
+    "if (info->frame->format == AV_PIX_FMT_YUV420P || info->frame->format == AV_PIX_FMT_BGRA || info->frame->format == AV_PIX_FMT_YUVJ420P || info->frame->format == AV_PIX_FMT_YUV444P || info->frame->format == AV_PIX_FMT_YUVA420P) {",
+  );
+
+const modernGifVideoFixture = `
+extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo() {
+    dataArr[PARAM_NUM_DURATION] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);
+}
+extern "C" JNIEXPORT jlong JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nCreateDecoder() {
+    dataArr[4] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);
+}
+extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nSeekToMs() {
+    VideoFrameReader::Status status = info->reader->getNextFrame();
+    if (status != VideoFrameReader::Status::Ok) return;
+}
+extern "C" JNIEXPORT int JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetFrameAtTime() {
+    VideoFrameReader::Status status = info->reader->getNextFrame();
+    AVFrame *frame = info->reader->frame();
+    writeFrameToBitmap(env, info, frame, data, bitmap);
+    return status == VideoFrameReader::Status::Ok;
+}
+extern "C" JNIEXPORT jint JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoFrame() {
+    VideoFrameReader::Status status = info->reader->getNextFrame();
+    AVFrame *frame = info->reader->frame();
+    if (bitmap != nullptr) writeFrameToBitmap(env, info, frame, data, bitmap);
+    return status == VideoFrameReader::Status::Ok;
+}
+`;
+
 describe("Android raw GIF/APNG patch", () => {
   it("routes APNG MIME and .apng documents through the existing GIF UI", () => {
     const patched = patchMessageObjectRawAnimation(messageObjectFixture);
@@ -132,6 +166,24 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patched.match(/if \(crossgramCanWriteFrame\(info->frame\)\) \{/g)).toHaveLength(2);
     expect(patched).toContain("if (bitmap != nullptr && crossgramCanWriteFrame(info->frame)) {");
     expect(patched).not.toContain("bitmap != nullptr && (info->frame->format == AV_PIX_FMT_YUV420P");
+    expect(patchGifVideoRawAnimation(patched)).toBe(patched);
+  });
+
+  it("patches legacy AnimatedFileDrawable JNI names used by Telegram and Nullgram", () => {
+    const patched = patchGifVideoRawAnimation(drawableGifVideoFixture);
+    expect(patched).toContain("crossgramDurationMs(VideoInfo *info)");
+    expect(patched).toContain("crossgramCanWriteFrame(const AVFrame *frame)");
+    expect(patched).toContain("Java_org_telegram_ui_Components_AnimatedFileDrawable_getVideoInfo");
+    expect(patched).toContain("if (bitmap != nullptr && crossgramCanWriteFrame(info->frame)) {");
+    expect(patchGifVideoRawAnimation(patched)).toBe(patched);
+  });
+
+  it("leaves Forkgram's unrestricted VideoFrameReader pipeline intact", () => {
+    const patched = patchGifVideoRawAnimation(modernGifVideoFixture);
+    expect(patched).toContain("crossgramDurationMs(VideoInfo *info)");
+    expect(patched.match(/crossgramDurationMs\(info\)/g)).toHaveLength(2);
+    expect(patched).not.toContain("crossgramCanWriteFrame(const AVFrame *frame)");
+    expect(patched).toContain("VideoFrameReader::Status");
     expect(patchGifVideoRawAnimation(patched)).toBe(patched);
   });
 

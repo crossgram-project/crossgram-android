@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readUtf8, writeUtf8IfChanged } from "../../src/core/files.js";
-import { addJavaImport, editDeclarationBody, replaceRegexOnce } from "../../src/core/text-edit.js";
+import { PatchError, addJavaImport, editDeclarationBody, replaceRegexOnce } from "../../src/core/text-edit.js";
 import type { Upstream } from "../../src/upstreams.js";
 
 const featureRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -182,7 +182,7 @@ export function patchGifVideoRawAnimation(initial: string): string {
     );
   source = replaceRegexOnce(
     source,
-    /(?=^extern\s+"C"\s+JNIEXPORT\s+void\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo)/m,
+    /(?=^extern\s+"C"\s+JNIEXPORT\s+void\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFile(?:Native_nGetVideoInfo|Drawable_getVideoInfo))/m,
     `static int32_t crossgramDurationMs(VideoInfo *info) {
     if (info == nullptr || info->fmt_ctx == nullptr
             || info->fmt_ctx->duration == AV_NOPTS_VALUE
@@ -198,9 +198,67 @@ export function patchGifVideoRawAnimation(initial: string): string {
     gifVideoFile,
     "avoid APNG AV_NOPTS_VALUE duration overflow",
   );
+  const legacyFrameFormatCheck = String.raw`if\s*\(info->frame->format\s*==\s*AV_PIX_FMT_YUV444P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUV420P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_BGRA\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUVJ420P\)\s*\{`;
+  const seekPattern = new RegExp(
+    `(extern\\s+"C"\\s+JNIEXPORT\\s+void\\s+JNICALL\\s+Java_org_telegram_ui_Components_AnimatedFile(?:Native_nSeekToMs|Drawable_seekToMs)[\\s\\S]*?)${legacyFrameFormatCheck}`,
+  );
+  const frameAtTimePattern = new RegExp(
+    `(extern\\s+"C"\\s+JNIEXPORT\\s+int\\s+JNICALL\\s+Java_org_telegram_ui_Components_AnimatedFile(?:Native_nGetFrameAtTime|Drawable_getFrameAtTime)[\\s\\S]*?)${legacyFrameFormatCheck}`,
+  );
+  const playbackPattern = new RegExp(
+    `(extern\\s+"C"\\s+JNIEXPORT\\s+jint\\s+JNICALL\\s+Java_org_telegram_ui_Components_AnimatedFile(?:Native_nGetVideoFrame|Drawable_getVideoFrame)[\\s\\S]*?)if\\s*\\((?:bitmap\\s*!=\\s*nullptr\\s*&&\\s*\\()?info->frame->format\\s*==\\s*AV_PIX_FMT_YUV420P\\s*\\|\\|\\s*info->frame->format\\s*==\\s*AV_PIX_FMT_BGRA\\s*\\|\\|\\s*info->frame->format\\s*==\\s*AV_PIX_FMT_YUVJ420P\\s*\\|\\|\\s*info->frame->format\\s*==\\s*AV_PIX_FMT_YUV444P\\s*\\|\\|\\s*info->frame->format\\s*==\\s*AV_PIX_FMT_YUVA420P\\)\\)?\\s*\\{`,
+  );
+  const legacyMarkers = [
+    "CROSSGRAM: accept every swscale-supported format while seeking",
+    "CROSSGRAM: accept every swscale-supported format during frame lookup",
+    "CROSSGRAM: render every swscale-supported animation format",
+  ];
+  const hasAllLegacyMarkers = legacyMarkers.every((marker) => source.includes(marker));
+  const hasAnyLegacyMarker = legacyMarkers.some((marker) => source.includes(marker));
+  const hasFrameHelper = source.includes("crossgramCanWriteFrame(const AVFrame *frame)");
+  if (hasAllLegacyMarkers && hasFrameHelper) return source;
+  if (hasAnyLegacyMarker || hasFrameHelper) {
+    throw new PatchError(gifVideoFile, "raw animation frame-format patch is only partially applied");
+  }
+  const countMatches = (pattern: RegExp): number => {
+    const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+    return [...source.matchAll(new RegExp(pattern.source, flags))].length;
+  };
+  const legacyCounts = [seekPattern, frameAtTimePattern, playbackPattern].map(countMatches);
+  const declarationContains = (pattern: RegExp, needles: string[]): boolean => {
+    let contains = false;
+    try {
+      editDeclarationBody(source, pattern, gifVideoFile, "modern VideoFrameReader pipeline", (body) => {
+        contains = needles.every((needle) => body.includes(needle));
+        return body;
+      });
+    } catch (error) {
+      if (!(error instanceof PatchError)) throw error;
+    }
+    return contains;
+  };
+  const modernFrameReader = declarationContains(
+    /extern\s+"C"\s+JNIEXPORT\s+void\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFileNative_nSeekToMs\s*\(/,
+    ["VideoFrameReader::Status", "info->reader->getNextFrame()"],
+  ) && declarationContains(
+    /extern\s+"C"\s+JNIEXPORT\s+int\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFileNative_nGetFrameAtTime\s*\(/,
+    ["VideoFrameReader::Status", "writeFrameToBitmap(env, info, frame, data, bitmap);"],
+  ) && declarationContains(
+    /extern\s+"C"\s+JNIEXPORT\s+jint\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoFrame\s*\(/,
+    ["VideoFrameReader::Status", "writeFrameToBitmap(env, info, frame, data, bitmap);"],
+  );
+  if (legacyCounts.every((count) => count === 0) && modernFrameReader) {
+    return source;
+  }
+  if (!legacyCounts.every((count) => count === 1)) {
+    throw new PatchError(
+      gifVideoFile,
+      `raw animation frame-format anchors: expected [1,1,1], found [${legacyCounts.join(",")}], modern=${modernFrameReader}`,
+    );
+  }
   source = replaceRegexOnce(
     source,
-    /(?=^extern\s+"C"\s+JNIEXPORT\s+void\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo)/m,
+    /(?=^extern\s+"C"\s+JNIEXPORT\s+void\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFile(?:Native_nGetVideoInfo|Drawable_getVideoInfo))/m,
     `static bool crossgramCanWriteFrame(const AVFrame *frame) {
     return frame != nullptr
             && frame->format > AV_PIX_FMT_NONE
@@ -212,10 +270,9 @@ export function patchGifVideoRawAnimation(initial: string): string {
     gifVideoFile,
     "allow FFmpeg swscale to render raw GIF/APNG pixel formats",
   );
-  const legacyFrameFormatCheck = String.raw`if\s*\(info->frame->format\s*==\s*AV_PIX_FMT_YUV444P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUV420P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_BGRA\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUVJ420P\)\s*\{`;
   source = replaceRegexOnce(
     source,
-    new RegExp(`(extern\\s+"C"\\s+JNIEXPORT\\s+void\\s+JNICALL\\s+Java_org_telegram_ui_Components_AnimatedFileNative_nSeekToMs[\\s\\S]*?)${legacyFrameFormatCheck}`),
+    seekPattern,
     `$1/* CROSSGRAM: accept every swscale-supported format while seeking. */
                 if (crossgramCanWriteFrame(info->frame)) {`,
     "CROSSGRAM: accept every swscale-supported format while seeking",
@@ -224,7 +281,7 @@ export function patchGifVideoRawAnimation(initial: string): string {
   );
   source = replaceRegexOnce(
     source,
-    new RegExp(`(extern\\s+"C"\\s+JNIEXPORT\\s+int\\s+JNICALL\\s+Java_org_telegram_ui_Components_AnimatedFileNative_nGetFrameAtTime[\\s\\S]*?)${legacyFrameFormatCheck}`),
+    frameAtTimePattern,
     `$1/* CROSSGRAM: accept every swscale-supported format during frame lookup. */
                 if (crossgramCanWriteFrame(info->frame)) {`,
     "CROSSGRAM: accept every swscale-supported format during frame lookup",
@@ -233,8 +290,8 @@ export function patchGifVideoRawAnimation(initial: string): string {
   );
   source = replaceRegexOnce(
     source,
-    /if\s*\(bitmap\s*!=\s*nullptr\s*&&\s*\(info->frame->format\s*==\s*AV_PIX_FMT_YUV420P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_BGRA\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUVJ420P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUV444P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUVA420P\)\)\s*\{/,
-    `/* CROSSGRAM: render every swscale-supported animation format. */
+    playbackPattern,
+    `$1/* CROSSGRAM: render every swscale-supported animation format. */
             if (bitmap != nullptr && crossgramCanWriteFrame(info->frame)) {`,
     "CROSSGRAM: render every swscale-supported animation format",
     gifVideoFile,
