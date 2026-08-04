@@ -27,7 +27,7 @@ describe("build matrix", () => {
   it("installs both legacy native and TDLib NDKs for Forkgram", () => {
     expect(getUpstream("forkgram")).toMatchObject({
       ndkVersion: "27.2.12479018",
-      nativeDepsNdkVersion: "21.4.7075529",
+      nativeDepsNdkVersion: "27.2.12479018",
       tdlibNdkVersion: "23.2.8568313",
     });
   });

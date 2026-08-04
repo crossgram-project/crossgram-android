@@ -93,7 +93,7 @@ export const upstreams: readonly Upstream[] = [
     appGradle: "TMessagesProj_App/build.gradle",
     appModuleManifests: true,
     ndkVersion: "27.2.12479018",
-    nativeDepsNdkVersion: "21.4.7075529",
+    nativeDepsNdkVersion: "27.2.12479018",
     tdlibNdkVersion: "23.2.8568313",
   },
 ] as const;
