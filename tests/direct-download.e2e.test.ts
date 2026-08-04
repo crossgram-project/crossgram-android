@@ -59,8 +59,28 @@ public final class Harness {
       response.end(payload);
       return;
     }
+    if (request.url === "/resume") {
+      const match = /^bytes=(\d+)-$/.exec(request.headers.range ?? "");
+      if (!match) {
+        response.writeHead(400).end("missing open-ended range");
+        return;
+      }
+      const start = Number(match[1]);
+      const body = payload.subarray(start);
+      response.writeHead(206, {
+        "content-length": body.length,
+        "content-range": `bytes ${start}-${payload.length - 1}/${payload.length}`,
+      });
+      response.end(body);
+      return;
+    }
     if (request.url === "/failure") {
       response.writeHead(503).end("unavailable");
+      return;
+    }
+    if (request.url === "/ignore-range") {
+      response.writeHead(200, { "content-length": payload.length });
+      response.end(payload);
       return;
     }
     response.writeHead(404).end();
@@ -92,11 +112,21 @@ async function run(url: string, firstOffset: number, firstLimit: number,
 }
 
 describe("Android direct HTTP client e2e", () => {
-  it("serves multiple FileLoadOperation parts from one normal HTTP request", async () => {
+  it("resumes at Telegram's first missing offset and serves multiple parts from one HTTP request", async () => {
     requests = 0;
     rangeHeaders = [];
-    expect(await run(`${baseUrl}/whole`, 5, 8, 13, 9)).toBe(
+    expect(await run(`${baseUrl}/resume`, 5, 8, 13, 9)).toBe(
       `${payload.subarray(5, 13).toString()}|${payload.subarray(13, 22).toString()}`,
+    );
+    expect(requests).toBe(1);
+    expect(rangeHeaders).toEqual(["bytes=5-"]);
+  });
+
+  it("uses a normal GET when Telegram has no partial file", async () => {
+    requests = 0;
+    rangeHeaders = [];
+    expect(await run(`${baseUrl}/whole`, 0, 8, 8, 9)).toBe(
+      `${payload.subarray(0, 8).toString()}|${payload.subarray(8, 17).toString()}`,
     );
     expect(requests).toBe(1);
     expect(rangeHeaders).toEqual([undefined]);
@@ -105,8 +135,18 @@ describe("Android direct HTTP client e2e", () => {
   it("reports one failed whole-file request so FileLoadOperation can fall back to relay", async () => {
     requests = 0;
     expect(await run(`${baseUrl}/failure`, 5, 8, 13, 9)).toContain(
-      "RELAY:direct HTTP expected 200, got 503",
+      "RELAY:direct HTTP could not resume at 5, got 503",
     );
     expect(requests).toBe(1);
+  });
+
+  it("falls back instead of corrupting a resumed file when the origin ignores Range", async () => {
+    requests = 0;
+    rangeHeaders = [];
+    expect(await run(`${baseUrl}/ignore-range`, 5, 8, 13, 9)).toContain(
+      "RELAY:direct HTTP could not resume at 5, got 200",
+    );
+    expect(requests).toBe(1);
+    expect(rangeHeaders).toEqual(["bytes=5-"]);
   });
 });

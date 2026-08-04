@@ -7,6 +7,8 @@ Crossgram 在 Telegram Android 及其第三方客户端源码上语义地注入�
 对于 `bridge-media:` 文件，修改版客户端会先调用 Crossgram 的
 `crossgram.getFileUrl` RPC，并为整个文件启动一次普通 HTTP 下载；Telegram 的
 分片装配器从同一个传输读取数据，不再为每个 `upload.getFile` 分片新建 HTTP 请求。
+如果 Telegram 已保留部分临时文件，则该传输只在启动时发送一次开放式
+`Range: bytes=<首个缺失偏移>-`，继续下载剩余内容。
 RPC、URL 或 HTTP 请求失败时自动回退到原有 `upload.getFile` relay 下载。每个下载操作通过
 `getCrossgramDownloadTransport()` 暴露 `direct` / `relay` 状态，日志使用
 `crossgram_download_transport=<direct|relay>` 标记。

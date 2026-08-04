@@ -43,6 +43,7 @@ public final class CrossgramDirectHttp {
         private final Map<Integer, PendingRead> pending = new LinkedHashMap<>();
         private HttpURLConnection connection;
         private ScheduledFuture<?> cleanup;
+        private long baseOffset = -1;
         private long downloaded;
         private boolean complete;
         private boolean closed;
@@ -52,6 +53,9 @@ public final class CrossgramDirectHttp {
             this.url = url;
             cacheFile = File.createTempFile("crossgram-direct-", ".cache");
             cache = new RandomAccessFile(cacheFile, "rw");
+        }
+
+        private void start() {
             Thread worker = new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -68,15 +72,25 @@ public final class CrossgramDirectHttp {
                 return;
             }
             List<Completion> ready;
+            boolean start = false;
             synchronized (this) {
                 if (cleanup != null) {
                     cleanup.cancel(false);
                     cleanup = null;
                 }
+                if (baseOffset < 0) {
+                    baseOffset = offset;
+                    downloaded = offset;
+                    start = true;
+                } else if (offset < baseOffset) {
+                    callback.onResult(null, "requested offset precedes direct HTTP resume point");
+                    return;
+                }
                 pending.put(token, new PendingRead(token, offset, limit, callback));
                 ready = collectReadyLocked();
                 if (complete || failure != null) scheduleCleanupLocked();
             }
+            if (start) start();
             runCompletions(ready);
         }
 
@@ -119,9 +133,12 @@ public final class CrossgramDirectHttp {
                 opened.setConnectTimeout(15_000);
                 opened.setReadTimeout(30_000);
                 opened.setRequestProperty("Accept-Encoding", "identity");
+                if (baseOffset > 0) {
+                    opened.setRequestProperty("Range", "bytes=" + baseOffset + "-");
+                }
                 int status = opened.getResponseCode();
-                if (status != HttpURLConnection.HTTP_OK) {
-                    throw new IOException("direct HTTP expected 200, got " + status);
+                if (!validResponse(opened, status, baseOffset)) {
+                    throw new IOException("direct HTTP could not resume at " + baseOffset + ", got " + status);
                 }
                 try (InputStream input = opened.getInputStream()) {
                     byte[] buffer = new byte[64 * 1024];
@@ -131,7 +148,7 @@ public final class CrossgramDirectHttp {
                         if (count == 0) continue;
                         synchronized (this) {
                             if (closed) return;
-                            cache.seek(downloaded);
+                            cache.seek(downloaded - baseOffset);
                             cache.write(buffer, 0, count);
                             downloaded += count;
                             ready = collectReadyLocked();
@@ -179,7 +196,7 @@ public final class CrossgramDirectHttp {
                 byte[] bytes = new byte[count];
                 try {
                     if (count > 0) {
-                        cache.seek(read.offset);
+                        cache.seek(read.offset - baseOffset);
                         cache.readFully(bytes);
                     }
                     iterator.remove();
@@ -209,6 +226,15 @@ public final class CrossgramDirectHttp {
         for (Completion completion : completions) {
             completion.callback.onResult(completion.bytes, completion.error);
         }
+    }
+
+    private static boolean validResponse(HttpURLConnection connection, int status, long offset) {
+        if (offset == 0 && status == HttpURLConnection.HTTP_OK) return true;
+        if (status != HttpURLConnection.HTTP_PARTIAL) return false;
+        String contentRange = connection.getHeaderField("Content-Range");
+        if (contentRange == null) return false;
+        String prefix = "bytes " + offset + "-";
+        return contentRange.regionMatches(true, 0, prefix, 0, prefix.length());
     }
 
     private static final class PendingRead {
