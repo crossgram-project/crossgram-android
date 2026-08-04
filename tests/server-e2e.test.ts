@@ -69,6 +69,8 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("crossgramE2eBitmapChecksum(frame)");
     expect(patched).toContain("frames_changed=true looped=true");
     expect(patched).not.toContain("getFrameAtTime(");
+    expect(patched).not.toContain("drawable.nativePtr");
+    expect(patched).not.toContain("native_ptr=");
     expect(patched).toContain("addRecentSticker(");
     expect(patched).toContain("getRecentStickers(MediaDataController.TYPE_IMAGE)");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendSticker(");

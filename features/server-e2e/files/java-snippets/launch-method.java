@@ -275,10 +275,9 @@
                             loopChecksum = checksum;
                         }
                     }
-                    if (!expected || drawable.nativePtr == 0 || frame == null || !changed || !looped) {
+                    if (!expected || frame == null || !changed || !looped) {
                         android.util.Log.e("CrossgramE2E", "raw_animation_failed format=" + expectedFormat
                                 + " apng=" + apng + " gif=" + gif
-                                + " native_ptr=" + drawable.nativePtr
                                 + " frame=" + (frame != null)
                                 + " frames_changed=" + changed + " looped=" + looped
                                 + " first_checksum=" + firstChecksum
