@@ -19,9 +19,9 @@ git clone --depth 1 --branch "$REF" "https://github.com/$REPOSITORY.git" "$SOURC
 case "$CLIENT" in
   mercurygram)
     git -C "$SOURCE_ROOT" submodule update --init --recursive --depth 1 \
-      TMessagesProj/jni/libvpx \
-      TMessagesProj/jni/ffmpeg \
-      TMessagesProj/jni/dav1d \
+      TMessagesProj/jni/third_party/libvpx \
+      TMessagesProj/jni/third_party/ffmpeg \
+      TMessagesProj/jni/third_party/dav1d \
       TMessagesProj/jni/boringssl \
       TMessagesProj/jni/td \
       TMessagesProj/jni/whisper

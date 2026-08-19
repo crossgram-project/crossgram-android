@@ -32,6 +32,10 @@ describe("build scripts", () => {
     const source = await readFile(ciScript, "utf8");
 
     expect(source).toContain('mercurygram)');
+    expect(source).toContain("TMessagesProj/jni/third_party/libvpx");
+    expect(source).toContain("TMessagesProj/jni/third_party/ffmpeg");
+    expect(source).toContain("TMessagesProj/jni/third_party/dav1d");
+    expect(source).not.toMatch(/^\s+TMessagesProj\/jni\/(?:libvpx|ffmpeg|dav1d) \\/m);
     expect(source).toContain('node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"');
     expect(source).toContain('EXTRA_GRADLE_ARGS+=("-PMG_BUILD_TAG=$VERSION")');
     expect(source).toContain('EXTRA_GRADLE_ARGS+=("--no-parallel")');
