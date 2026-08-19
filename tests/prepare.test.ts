@@ -46,11 +46,17 @@ describe("prepareBuild", () => {
 
   it("writes valid Kotlin DSL syntax for Nnngram ARM64", async () => {
     const relative = "TMessagesProj/build.gradle.kts";
-    const root = await fixture(relative, "plugins { alias(libs.plugins.android.application) }\nandroid {}\n");
+    const root = await fixture(
+      relative,
+      "plugins { alias(libs.plugins.android.application) }\nandroid { externalNativeBuild { cmake {} } }\n",
+    );
     await prepareBuild(root, getUpstream("nnngram"), "arm64");
     const source = await readFile(path.join(root, relative), "utf8");
 
     expect(source).toContain('abiFilters.addAll(setOf("arm64-v8a"))');
+    expect(source).toContain('arguments += listOf(');
+    expect(source).toContain('"-DCMAKE_C_COMPILER_LAUNCHER=ccache"');
+    expect(source).toContain('"-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"');
     expect(source).toContain("productFlavors.configureEach");
     expect(source).toContain("isEnable = false");
     expect(await prepareBuild(root, getUpstream("nnngram"), "arm64")).toEqual([]);
@@ -76,7 +82,10 @@ describe("prepareBuild", () => {
 
   it("makes Nagram native dependency scripts targetable and NDK-compatible on x86", async () => {
     const relative = "TMessagesProj/build.gradle";
-    const root = await fixture(relative, "plugins { id 'com.android.application' }\nandroid {}\n");
+    const root = await fixture(
+      relative,
+      "plugins { id 'com.android.application' }\nandroid { externalNativeBuild { cmake {} } }\n",
+    );
     const nativeFiles: Record<string, string> = {
       "TMessagesProj/jni/build_boringssl.sh": "build arm64 arm\n",
       "TMessagesProj/jni/build_ffmpeg_clang.sh": "build arm64 arm\n",
@@ -121,6 +130,9 @@ describe("prepareBuild", () => {
 
     await prepareBuild(root, getUpstream("nagram"), "x86_64");
     const libvpx = await readFile(path.join(root, "TMessagesProj/jni/build_libvpx_clang.sh"), "utf8");
+    const gradle = await readFile(path.join(root, relative), "utf8");
+    expect(gradle).toContain('arguments "-DCMAKE_C_COMPILER_LAUNCHER=ccache"');
+    expect(gradle).toContain('"-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"');
     expect(libvpx).toContain("build ${CROSSGRAM_NATIVE_TARGETS:-arm64 arm}");
     expect(libvpx).toContain("CROSSGRAM NDK-compatible x86_64 flags");
     expect(libvpx).toContain("CROSSGRAM NDK-compatible x86 flags");

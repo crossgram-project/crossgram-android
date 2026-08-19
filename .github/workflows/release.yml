@@ -51,6 +51,12 @@ jobs:
     needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_MAXSIZE: 500M
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -82,10 +88,19 @@ jobs:
           java-version: 17
       - name: Install native tools
         run: bash scripts/ci/install-native-tools.sh
+      - name: Restore C and C++ compiler cache
+        uses: actions/cache@v6
+        with:
+          path: .cache/ccache
+          key: ccache-v1-${{ runner.os }}-${{ matrix.id }}-${{ matrix.variant }}-${{ matrix.ref }}-${{ matrix.ndkVersion }}-${{ hashFiles('src/build/prepare.ts', 'features/**', 'scripts/ci/**') }}
+          restore-keys: |
+            ccache-v1-${{ runner.os }}-${{ matrix.id }}-${{ matrix.variant }}-
       - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: false
       - run: corepack enable && yarn install --immutable
+      - name: Reset compiler cache statistics
+        run: ccache --zero-stats
       - name: Patch and build five branded APKs
         env:
           CROSSGRAM_KEYSTORE_BASE64: ${{ secrets.CROSSGRAM_KEYSTORE_BASE64 }}
@@ -104,6 +119,9 @@ jobs:
           "${{ matrix.gradleTask }}"
           "${{ matrix.ndkVersion }}"
           "${{ matrix.nativeDepsNdkVersion }}"
+      - name: Report compiler cache statistics
+        if: always()
+        run: ccache --show-stats --verbose
       - uses: actions/upload-artifact@v7
         if: success()
         with:

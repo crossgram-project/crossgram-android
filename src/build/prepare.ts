@@ -20,10 +20,24 @@ const nativeTargetByAbi: Record<string, string> = {
   x86_64: "x86_64",
 };
 
-function gradleOverride(abis: readonly string[], kotlinDsl: boolean, includeSplits: boolean): string {
+function gradleOverride(
+  abis: readonly string[],
+  kotlinDsl: boolean,
+  includeSplits: boolean,
+  includeCompilerCache: boolean,
+): string {
   const values = abis.map((abi) => `'${abi}'`).join(", ");
   if (kotlinDsl) {
     const kotlinValues = abis.map((abi) => `"${abi}"`).join(", ");
+    const compilerCache = includeCompilerCache ? `
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+                    "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
+                )
+            }
+        }` : "";
     const splits = includeSplits ? `
     splits {
         abi {
@@ -39,6 +53,7 @@ android {
             abiFilters.clear()
             abiFilters.addAll(setOf(${kotlinValues}))
         }
+${compilerCache}
     }
     productFlavors.configureEach {
         ndk {
@@ -51,6 +66,13 @@ ${splits}
 // CROSSGRAM ABI OVERRIDE END
 `;
   }
+  const compilerCache = includeCompilerCache ? `
+        externalNativeBuild {
+            cmake {
+                arguments "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+                          "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+            }
+        }` : "";
   const splits = includeSplits ? `
     splits {
         abi {
@@ -66,6 +88,7 @@ android {
             abiFilters.clear()
             abiFilters.addAll([${values}])
         }
+${compilerCache}
     }
     productFlavors.configureEach {
         ndk {
@@ -84,8 +107,9 @@ function updateGradleOverride(
   abis: readonly string[],
   kotlinDsl: boolean,
   includeSplits: boolean,
+  includeCompilerCache: boolean,
 ): string {
-  const block = gradleOverride(abis, kotlinDsl, includeSplits).trim();
+  const block = gradleOverride(abis, kotlinDsl, includeSplits, includeCompilerCache).trim();
   const current = /\/\/ CROSSGRAM ABI OVERRIDE BEGIN[^\r\n]*[\s\S]*?\/\/ CROSSGRAM ABI OVERRIDE END/;
   if (current.test(source)) return source.replace(current, block);
 
@@ -107,7 +131,14 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
       throw new PatchError(relative, "could not find the Android Gradle DSL");
     }
     const includeSplits = relative === upstream.appGradle;
-    const updated = updateGradleOverride(source, abis, relative.endsWith(".kts"), includeSplits);
+    const includeCompilerCache = /\bexternalNativeBuild\s*\{/.test(source);
+    const updated = updateGradleOverride(
+      source,
+      abis,
+      relative.endsWith(".kts"),
+      includeSplits,
+      includeCompilerCache,
+    );
     if (await writeUtf8IfChanged(file, updated)) changed.push(relative);
   }
   if (upstream.id === "forkgram") {

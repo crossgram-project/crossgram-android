@@ -60,4 +60,16 @@ describe("build scripts", () => {
     expect(nativeTools).toContain("run_apt 15m install -y");
     expect(ci).not.toContain("sudo apt-get");
   });
+
+  it("persists a bounded compiler cache for native builds", async () => {
+    const workflow = await readFile(releaseWorkflow, "utf8");
+
+    expect(workflow).toContain("uses: actions/cache@v6");
+    expect(workflow).toContain("path: .cache/ccache");
+    expect(workflow).toContain("CCACHE_MAXSIZE: 500M");
+    expect(workflow).toContain("CCACHE_COMPILERCHECK: content");
+    expect(workflow).toContain("ccache --zero-stats");
+    expect(workflow).toContain("ccache --show-stats --verbose");
+    expect(workflow).toContain("matrix.id }}-${{ matrix.variant");
+  });
 });
