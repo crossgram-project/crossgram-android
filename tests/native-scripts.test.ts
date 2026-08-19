@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const ciScript = new URL("../scripts/ci/build-upstream.sh", import.meta.url);
+const nativeToolsScript = new URL("../scripts/ci/install-native-tools.sh", import.meta.url);
 const releaseWorkflow = new URL("../.github/workflows/release.yml", import.meta.url);
 
 describe("build scripts", () => {
@@ -43,5 +44,20 @@ describe("build scripts", () => {
     expect(source).toContain('--max-workers="$GRADLE_MAX_WORKERS"');
     expect(source).toContain('ORG_GRADLE_PROJECT_RELEASE_KEYSTORE_FILE');
     expect(source).toContain('NATIVE_DEPS_NDK_DIR');
+  });
+
+  it("bounds and retries flaky apt operations without reinstalling tools for Nagram", async () => {
+    const [ci, nativeTools, workflow] = await Promise.all([
+      readFile(ciScript, "utf8"),
+      readFile(nativeToolsScript, "utf8"),
+      readFile(releaseWorkflow, "utf8"),
+    ]);
+
+    expect(workflow).toContain("bash scripts/ci/install-native-tools.sh");
+    expect(nativeTools).toContain("Acquire::Retries=3");
+    expect(nativeTools).toContain('timeout --signal=TERM --kill-after=30s "$limit"');
+    expect(nativeTools).toContain("run_apt 5m update");
+    expect(nativeTools).toContain("run_apt 15m install -y");
+    expect(ci).not.toContain("sudo apt-get");
   });
 });

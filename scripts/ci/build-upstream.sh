@@ -114,8 +114,6 @@ case "$CLIENT" in
 esac
 
 if [[ "$CLIENT" == "nagram" ]]; then
-  sudo apt-get update
-  sudo apt-get install -y bison gcc make curl ninja-build yasm patch
   cd "$SOURCE_ROOT"
   ./run init libs libvpx
   ./run init libs ffmpeg
