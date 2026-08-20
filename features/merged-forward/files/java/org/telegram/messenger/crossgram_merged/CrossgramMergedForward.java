@@ -5,11 +5,8 @@ import android.net.Uri;
 import android.os.Bundle;
 
 import org.telegram.messenger.FileLog;
-import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.UserConfig;
-import org.telegram.tgnet.TLRPC;
-import org.telegram.tgnet.tl.TL_update;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ChatActivity;
 import org.telegram.ui.LaunchActivity;
@@ -17,110 +14,79 @@ import org.telegram.ui.LaunchActivity;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Compatibility glue for QQ's many-to-one merged-forward result. */
+/** Opens Crossgram's synthetic merged-forward chats and optional message anchors. */
 public final class CrossgramMergedForward {
     private static final Pattern LINK = Pattern.compile(
-            "^https?://(?:www\\.)?t\\.me/bridgechat_([1-9][0-9]*)/?(?:[?#].*)?$",
+            "^https?://(?:www\\.)?t\\.me/bridgechat_([1-9][0-9]*)"
+                    + "(?:/([1-9][0-9]*))?/?(?:[?#].*)?$",
             Pattern.CASE_INSENSITIVE);
 
     private CrossgramMergedForward() {}
 
-    public static long confirmedRandomId(
-            TLRPC.TL_messages_forwardMessages request,
-            TLRPC.Updates updates) {
-        if (request == null || updates == null || request.id.size() <= 1
-                || request.id.size() != request.random_id.size()) {
-            return 0;
-        }
-        TL_update.TL_updateMessageID confirmation = null;
-        TLRPC.Message delivered = null;
-        int deliveredCount = 0;
-        for (TLRPC.Update update : updates.updates) {
-            if (update instanceof TL_update.TL_updateMessageID) {
-                if (confirmation != null) return 0;
-                confirmation = (TL_update.TL_updateMessageID) update;
-            } else {
-                TLRPC.Message message = deliveredMessage(update);
-                if (message != null) {
-                    delivered = message;
-                    deliveredCount++;
-                }
-            }
-        }
-        if (confirmation == null || deliveredCount != 1 || !isMergedForwardMessage(delivered)
-                || !request.random_id.contains(confirmation.random_id)) {
-            return 0;
-        }
-        return confirmation.random_id;
-    }
-
     public static boolean openUrl(Context context, Uri uri) {
-        final long chatId = chatId(uri == null ? null : uri.toString());
-        if (context == null || chatId <= 0) return false;
+        final LinkTarget target = linkTarget(uri == null ? null : uri.toString());
+        if (context == null || target == null) return false;
         final int account = UserConfig.selectedAccount;
         final MessagesController controller = MessagesController.getInstance(account);
-        if (controller.getChat(chatId) != null) {
-            openChat(controller, chatId);
+        if (controller.getChat(target.chatId) != null) {
+            openChat(controller, target);
             return true;
         }
-        final String username = "bridgechat_" + chatId;
+        final String username = "bridgechat_" + target.chatId;
         controller.getUserNameResolver().resolve(username, peerId -> {
-            if (peerId == null || peerId >= 0 || -peerId != chatId) {
-                FileLog.e("crossgram_merged_forward_open_failed chat_id=" + chatId);
+            if (peerId == null || peerId >= 0 || -peerId != target.chatId) {
+                FileLog.e("crossgram_merged_forward_open_failed chat_id=" + target.chatId);
                 return;
             }
-            openChat(controller, chatId);
+            openChat(controller, target);
         });
         return true;
     }
 
-    private static void openChat(MessagesController controller, long chatId) {
+    private static void openChat(MessagesController controller, LinkTarget target) {
         BaseFragment fragment = LaunchActivity.getSafeLastFragment();
         if (fragment == null) {
-            FileLog.e("crossgram_merged_forward_open_failed chat_id=" + chatId + " reason=no_fragment");
+            FileLog.e("crossgram_merged_forward_open_failed chat_id=" + target.chatId
+                    + " reason=no_fragment");
             return;
         }
         Bundle args = new Bundle();
-        args.putLong("chat_id", chatId);
+        args.putLong("chat_id", target.chatId);
+        if (target.messageId > 0) {
+            args.putInt("message_id", target.messageId);
+        }
         if (!controller.checkCanOpenChat(args, fragment)) {
-            FileLog.e("crossgram_merged_forward_open_failed chat_id=" + chatId + " reason=chat_rejected");
+            FileLog.e("crossgram_merged_forward_open_failed chat_id=" + target.chatId
+                    + " reason=chat_rejected");
             return;
         }
         fragment.presentFragment(new ChatActivity(args));
-        FileLog.d("crossgram_merged_forward_opened chat_id=" + chatId);
-        android.util.Log.d("CrossgramMergedForward", "opened chat_id=" + chatId);
+        FileLog.d("crossgram_merged_forward_opened chat_id=" + target.chatId
+                + " message_id=" + target.messageId);
+        android.util.Log.d("CrossgramMergedForward", "opened chat_id=" + target.chatId
+                + " message_id=" + target.messageId);
     }
 
-    private static long chatId(String url) {
-        if (url == null) return 0;
+    private static LinkTarget linkTarget(String url) {
+        if (url == null) return null;
         Matcher matcher = LINK.matcher(url);
-        if (!matcher.matches()) return 0;
+        if (!matcher.matches()) return null;
         try {
-            long value = Long.parseLong(matcher.group(1));
-            return value > 0 ? value : 0;
+            long chatId = Long.parseLong(matcher.group(1));
+            int messageId = matcher.group(2) == null ? 0 : Integer.parseInt(matcher.group(2));
+            return chatId > 0 ? new LinkTarget(chatId, messageId) : null;
         } catch (NumberFormatException ignored) {
-            return 0;
+            return null;
         }
     }
 
-    private static boolean isMergedForwardMessage(TLRPC.Message message) {
-        return message != null && message.media != null && message.media.webpage != null
-                && chatId(message.media.webpage.url) > 0;
-    }
+    private static final class LinkTarget {
+        final long chatId;
+        final int messageId;
 
-    private static TLRPC.Message deliveredMessage(TLRPC.Update update) {
-        if (update instanceof TL_update.TL_updateNewMessage) {
-            return ((TL_update.TL_updateNewMessage) update).message;
+        LinkTarget(long chatId, int messageId) {
+            this.chatId = chatId;
+            this.messageId = messageId;
         }
-        if (update instanceof TL_update.TL_updateNewChannelMessage) {
-            return ((TL_update.TL_updateNewChannelMessage) update).message;
-        }
-        if (update instanceof TL_update.TL_updateNewScheduledMessage) {
-            return ((TL_update.TL_updateNewScheduledMessage) update).message;
-        }
-        if (update instanceof TL_update.TL_updateQuickReplyMessage) {
-            return ((TL_update.TL_updateQuickReplyMessage) update).message;
-        }
-        return null;
     }
 }

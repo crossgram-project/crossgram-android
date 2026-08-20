@@ -421,7 +421,10 @@
                 String url = webPage == null ? null : webPage.url;
                 String description = webPage == null ? null : webPage.description;
                 String compact = description == null ? "" : description.replaceAll("\\s+", "");
-                if (url == null || !url.matches("(?i)^https?://(?:www\\.)?t\\.me/bridgechat_[1-9][0-9]*/?.*$")) {
+                java.util.regex.Matcher link = url == null ? null : java.util.regex.Pattern.compile(
+                        "(?i)^https?://(?:www\\.)?t\\.me/bridgechat_[1-9][0-9]*/"
+                                + "([1-9][0-9]*)/?(?:[?#].*)?$").matcher(url);
+                if (link == null || !link.matches()) {
                     android.util.Log.e("CrossgramE2E", "open_merged_forward_failed reason=invalid_url");
                     return;
                 }
@@ -434,7 +437,8 @@
                 String preview = android.util.Base64.encodeToString(
                         description.getBytes(java.nio.charset.StandardCharsets.UTF_8),
                         android.util.Base64.NO_WRAP);
-                android.util.Log.i("CrossgramE2E", "merged_forward_preview_ready preview_base64=" + preview);
+                android.util.Log.i("CrossgramE2E", "merged_forward_preview_ready preview_base64=" + preview
+                        + " target_message_id=" + link.group(1));
                 org.telegram.messenger.browser.Browser.openUrl(LaunchActivity.this, android.net.Uri.parse(url));
                 final int[] attempts = { 0 };
                 final Runnable[] verify = new Runnable[1];

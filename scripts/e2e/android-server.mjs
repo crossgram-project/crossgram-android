@@ -90,7 +90,10 @@ function transportLogs() {
 }
 
 function mergedForwardLogs() {
-  return adb(["logcat", "-d", "-s", "CrossgramMergedForward:D", "CrossgramE2E:I", "*:S"]);
+  return adb([
+    "logcat", "-d", "-s",
+    "CrossgramSendCancellation:D", "CrossgramMergedForward:D", "CrossgramE2E:I", "*:S",
+  ]);
 }
 
 async function waitFor(marker, timeoutMs = 45_000) {
@@ -214,6 +217,33 @@ async function waitForMtprotoRequest(relayRoot, baselineId, method, accept, time
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timed out waiting for Android MTProto request: ${method}`);
+}
+
+function findTlObjects(value, type, output = []) {
+  if (!value || typeof value !== "object") return output;
+  if (value._ === type) output.push(value);
+  for (const child of Array.isArray(value) ? value : Object.values(value)) {
+    findTlObjects(child, type, output);
+  }
+  return output;
+}
+
+async function waitForMtprotoResult(relayRoot, baselineId, requestMessageId, accept, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snapshot = inspectMtproto(relayRoot, [
+      "--after-id", String(baselineId),
+      "--limit", "500",
+    ]);
+    const event = (snapshot.events ?? []).find((candidate) => {
+      if (candidate.direction !== "server->client"
+        || String(candidate.requestMessageId) !== String(requestMessageId)) return false;
+      return Boolean(accept(candidate.payload));
+    });
+    if (event) return { event, result: accept(event.payload) };
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Timed out waiting for Android MTProto result: ${requestMessageId}`);
 }
 
 async function sendQqntMessage(endpoint, conversationId, message) {
@@ -851,6 +881,18 @@ async function main() {
         && request.randomId?.length === targetIds.length
         && targetIds.every((id) => request.id.includes(id)),
     );
+    const forwardedResult = await waitForMtprotoResult(
+      relayRoot,
+      baselineEventId,
+      forwardedRequest.event.messageId,
+      (payload) => {
+        const confirmations = findTlObjects(payload, "updateMessageID");
+        const cancellations = confirmations.filter((update) => Number(update.id) === 0);
+        return cancellations.length === targetIds.length - 1
+          ? { confirmations, cancellations }
+          : undefined;
+      },
+    );
     const merged = await waitForRelaySql(
       relayRoot,
       `SELECT m.id, m.primaryPlatformMessageId, p.tlMessageId
@@ -865,13 +907,13 @@ async function main() {
       "one persisted QQ merged-forward output",
       90_000,
     );
-    const collapseMarker = `collapsed removed=${targetIds.length - 1}`;
+    const collapseMarker = `cancelled removed=${targetIds.length - 1}`;
     const collapseDeadline = Date.now() + 45_000;
     while (Date.now() < collapseDeadline && !mergedForwardLogs().includes(collapseMarker)) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     if (!mergedForwardLogs().includes(collapseMarker)) {
-      throw new Error(`Android did not collapse merged-forward placeholders\n${mergedForwardLogs()}`);
+      throw new Error(`Android did not consume send-cancellation confirmations\n${mergedForwardLogs()}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 5_000));
     const afterCollapseLogs = mergedForwardLogs();
@@ -905,6 +947,10 @@ async function main() {
     );
     const previewFields = markerFields(previewOutput, "merged_forward_preview_ready");
     const preview = Buffer.from(previewFields.preview_base64, "base64").toString("utf8");
+    const targetMessageId = Number(previewFields.target_message_id);
+    if (!Number.isSafeInteger(targetMessageId) || targetMessageId <= 0) {
+      throw new Error(`Android merged-forward preview omitted its message anchor: ${previewFields.target_message_id}`);
+    }
     if (!preview.trim() || isGenericMergedForwardPreview(preview)) {
       throw new Error(`Android rendered a generic merged-forward preview: ${preview}`);
     }
@@ -923,7 +969,8 @@ async function main() {
       openBaselineEventId,
       "messages.getHistory",
       (request) => request.peer?._ === "inputPeerChat"
-        && Number(request.peer.chatId) === Math.abs(Number(openedFields.dialog_id)),
+        && Number(request.peer.chatId) === Math.abs(Number(openedFields.dialog_id))
+        && Number(request.offsetId) === targetMessageId,
       90_000,
     );
     process.stdout.write(`${JSON.stringify({
@@ -931,10 +978,12 @@ async function main() {
       command,
       sourceIds: targetIds,
       forwardRequestMessageId: forwardedRequest.event.messageId,
+      cancelledPlaceholders: forwardedResult.result.cancellations.length,
       mergedMessageId: merged.id,
       mergedTlMessageId: merged.tlMessageId,
       preview,
       openedDialogId: openedFields.dialog_id,
+      openedMessageId: targetMessageId,
       historyRequestMessageId: historyRequest.event.messageId,
     }, null, 2)}\n`);
     return;

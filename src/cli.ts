@@ -8,6 +8,7 @@ import { applyMergedForward } from "../features/merged-forward/patch.js";
 import { applyReactionOrder } from "../features/reaction-order/patch.js";
 import { applyRawAnimation } from "../features/raw-animation/patch.js";
 import { applyFastUpload } from "../features/fast-upload/patch.js";
+import { applySendCancellation } from "../features/send-cancellation/patch.js";
 import { applyBrand, getBrand } from "./branding.js";
 import { prepareBuild, type BuildVariant } from "./build/prepare.js";
 import { emitGithubMatrices } from "./discover.js";
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
     const root = path.resolve(option("source")!);
     const result = await applyServerSwitch(root, upstream);
     const directDownloadFiles = await applyDirectDownload(root, upstream);
+    const sendCancellationFiles = await applySendCancellation(root, upstream);
     const mergedForwardFiles = await applyMergedForward(root, upstream);
     const reactionOrderFiles = await applyReactionOrder(root, upstream);
     const rawAnimationFiles = await applyRawAnimation(root, upstream);
@@ -36,7 +38,15 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({
       client: upstream.id,
       source: root,
-      changedFiles: [...result.changedFiles, ...directDownloadFiles, ...mergedForwardFiles, ...reactionOrderFiles, ...rawAnimationFiles, ...fastUploadFiles],
+      changedFiles: [
+        ...result.changedFiles,
+        ...directDownloadFiles,
+        ...sendCancellationFiles,
+        ...mergedForwardFiles,
+        ...reactionOrderFiles,
+        ...rawAnimationFiles,
+        ...fastUploadFiles,
+      ],
     }, null, 2));
   } else if (command === "e2e") {
     const upstream = getUpstream(option("client")!);

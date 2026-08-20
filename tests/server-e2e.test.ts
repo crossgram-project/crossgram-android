@@ -317,14 +317,23 @@ describe("Android server E2E source driver", () => {
     expect(runner).toContain("one persisted QQ merged-forward output");
     expect(runner).toContain("MAX(CAST(m.primaryPlatformMessageId AS INTEGER))");
     expect(runner).toContain("CAST(m.primaryPlatformMessageId AS INTEGER) > ${BigInt(baseline.platformId)}");
-    expect(runner).toContain("collapsed removed=${targetIds.length - 1}");
+    expect(runner).toContain('findTlObjects(payload, "updateMessageID")');
+    expect(runner).toContain("Number(update.id) === 0");
+    expect(runner).toContain("cancelled removed=${targetIds.length - 1}");
+    expect(runner).toContain("Android did not consume send-cancellation confirmations");
     expect(runner).toContain("Android retained a failed merged-forward placeholder");
     expect(runner).toContain('dispatch(launchComponent, e2eAction, "open-merged-forward"');
     expect(runner).toContain("merged_forward_preview_ready");
+    const launch = await readFile(path.resolve(
+      "features/server-e2e/files/java-snippets/launch-method.java",
+    ), "utf8");
+    expect(launch).toContain('" target_message_id=" + link.group(1)');
     expect(runner).toContain("/([a-z0-9_]+)=([^ ]+)/g");
     expect(runner).toContain("Android preview does not contain source content");
+    expect(runner).toContain("Android merged-forward preview omitted its message anchor");
     expect(runner).toContain('"messages.getHistory"');
     expect(runner).toContain('request.peer?._ === "inputPeerChat"');
+    expect(runner).toContain("Number(request.offsetId) === targetMessageId");
     expect(runner).toContain('adb(["shell", "pm", "grant", packageName, permission])');
   });
 
