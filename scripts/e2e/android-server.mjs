@@ -325,6 +325,12 @@ function nativeReplyPredicate(target) {
 
 async function main() {
   const command = option("command", "all");
+  const coldReactionPanel = command === "reaction-panel" && booleanOption("clear-cache", true);
+  // A truly cold expanded panel can contain hundreds of animated assets. The
+  // emulator intentionally clears every cached reaction resource first, so
+  // allow the serialized UI sweep to finish instead of treating normal AVD
+  // download/decode time as a product failure.
+  const reactionPanelLoadTimeout = coldReactionPanel ? 300_000 : 90_000;
   const packageName = option("package", "xyz.nextalone.nagram.crossgram.qq");
   const dispatcherComponent = `${packageName}/org.telegram.ui.CrossgramE2eActivity`;
   const launchComponent = `${packageName}/org.telegram.ui.LaunchActivity`;
@@ -990,7 +996,7 @@ async function main() {
   }
 
   const peerCommands = new Set([
-    "chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction", "download",
+    "chat", "send", "search", "read", "draft", "reply", "edit", "delete", "forward", "reaction", "reaction-actors", "reaction-panel", "download",
   ]);
   if (peerCommands.has(command) || command === "all") {
     const conversation = option("conversation");
@@ -1008,6 +1014,15 @@ async function main() {
         await dispatch(launchComponent, e2eAction, "dialogs");
         await waitFor("page_opened:dialogs");
       } else {
+        // Disk deletion alone is not a cold reaction load: ImageLoader can
+        // satisfy every holder from the previous process' memory cache and
+        // never recreate the files that this probe verifies. Restart before
+        // opening the chat so --clear-cache measures a real cold load and is
+        // repeatable across consecutive groups.
+        if (coldReactionPanel) {
+          adb(["shell", "am", "force-stop", packageName]);
+          adb(["logcat", "-c"]);
+        }
         await dispatch(launchComponent, e2eAction, "chat", [
           ["--es", "crossgram_e2e_peer_type", peerType],
           ["--el", "crossgram_e2e_peer_id", peerId],
@@ -1044,7 +1059,7 @@ async function main() {
         }
       }
 
-      if (["read", "reply", "edit", "delete", "forward", "reaction", "download"].includes(command)) {
+      if (["read", "reply", "edit", "delete", "forward", "reaction", "reaction-actors", "reaction-panel", "download"].includes(command)) {
         const target = resolveMessageTarget(
           relayRoot,
           conversation,
@@ -1057,7 +1072,71 @@ async function main() {
           ["--ei", "crossgram_e2e_target_message_id", target.tlMessageId],
         ];
 
-        if (command === "download") {
+        if (command === "reaction-actors") {
+          await dispatch(launchComponent, e2eAction, "reaction-actors", targetExtras);
+          await waitForOutcome("function_called:getMessagesReactions", "reaction_actors_failed", 90_000);
+          const output = await waitForOutcome("reaction_actors_ready", "reaction_actors_failed", 90_000);
+          const fields = markerFields(output, "reaction_actors_ready");
+          const total = Number(fields.total);
+          const recent = Number(fields.recent);
+          const previewUsers = Number(fields.preview_users);
+          const previewButtons = Number(fields.preview_buttons);
+          const full = Number(fields.full);
+          const minimumActors = Number(option("min-actors", "1"));
+          if (!Number.isSafeInteger(minimumActors) || minimumActors <= 0) {
+            throw new Error("--min-actors must be a positive integer");
+          }
+          if (total < minimumActors || recent <= 0 || previewUsers <= 0 || previewButtons <= 0
+              || full < recent || fields.matches !== "true") {
+            throw new Error(`Android reaction actor preview incomplete: total=${total}, minimum=${minimumActors}, recent=${recent}, previewUsers=${previewUsers}, previewButtons=${previewButtons}, full=${full}, matches=${fields.matches}`);
+          }
+          process.stdout.write(`${JSON.stringify({
+            ok: true,
+            command,
+            totalReactions: total,
+            recentActors: recent,
+            previewUsers,
+            previewButtons,
+            fullActors: full,
+          }, null, 2)}\n`);
+          return;
+        } else if (command === "reaction-panel") {
+          await dispatch(launchComponent, e2eAction, "reaction-panel", [
+            ...targetExtras,
+            ["--ez", "crossgram_e2e_clear_reaction_cache", coldReactionPanel],
+          ]);
+          const openedOutput = await waitForOutcome("reaction_panel_opened", "reaction_panel_failed", 90_000);
+          const loadedOutput = await waitForOutcome(
+            "reaction_panel_loaded",
+            "reaction_panel_failed",
+            reactionPanelLoadTimeout,
+          );
+          const opened = markerFields(openedOutput, "reaction_panel_opened");
+          const loaded = markerFields(loadedOutput, "reaction_panel_loaded");
+          const expandedCells = Number(loaded.expanded_cells);
+          const expandedItems = Number(loaded.expanded_items);
+          const expandedFiles = Number(loaded.expanded_files);
+          if (Number(loaded.loaded) !== Number(loaded.holders)
+              || Number(loaded.holders) !== Number(opened.visible)
+              || Number(loaded.files) !== Number(loaded.resources)
+              || expandedCells !== expandedItems
+              || expandedItems <= Number(opened.visible)
+              || expandedFiles <= 0) {
+            throw new Error(`Android reaction panel incomplete: holders=${loaded.loaded}/${opened.visible}, files=${loaded.files}/${loaded.resources}, expanded=${expandedCells}/${expandedItems}, expandedFiles=${expandedFiles}`);
+          }
+          process.stdout.write(`${JSON.stringify({
+            ok: true,
+            command,
+            visibleReactions: Number(opened.visible),
+            loadedHolders: Number(loaded.loaded),
+            loadedResources: Number(loaded.files),
+            expandedCells,
+            expandedItems,
+            expandedFiles,
+            clearedCache: opened.cleared === "true",
+          }, null, 2)}\n`);
+          return;
+        } else if (command === "download") {
           const [media] = inspectSql(
             relayRoot,
             `SELECT id, size FROM mtproto_im_media

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   patchConnectionsJavaSource,
+  patchCustomDatacenterRoutingSource,
   patchLoginIconSource,
 } from "../features/server-switch/patch.js";
 
@@ -147,5 +148,45 @@ public class ConnectionsManager {
     expect(wrapper).toContain("jboolean resetDatacenters");
     expect(patcher).toContain("ServerSwitchConfig.applyForInitialization(currentAccount);");
     expect(patcher).toContain("Ljava/lang/String;ZZ)V");
+  });
+
+  it("keeps custom routes for generic and media connections after help.getConfig", () => {
+    const managerFile = "TMessagesProj/jni/tgnet/ConnectionsManager.cpp";
+    const source = `void ConnectionsManager::updateDcSettings(uint32_t dcNum, bool workaround, bool retry) {
+    auto request = new TL_help_getConfig();
+    sendRequest(request, [&](TLObject *response) {
+        if (response != nullptr) {
+            auto config = (TL_config *) response;
+            std::map<uint32_t, std::unique_ptr<DatacenterInfo>> map;
+            size_t count = config->dc_options.size();
+        }
+    });
+}
+
+void ConnectionsManager::applyDatacenterAddress(uint32_t datacenterId, std::string ipAddress, uint32_t port) {
+    scheduleTask([&, datacenterId, ipAddress, port] {
+        Datacenter *datacenter = getDatacenterWithId(datacenterId);
+        if (datacenter != nullptr) {
+            std::vector<TcpAddress> addresses;
+            addresses.emplace_back(ipAddress, port, 0, "");
+            datacenter->replaceAddresses(addresses, 0);
+            datacenter->resetAddressAndPortNum();
+        }
+    });
+}`;
+    const patched = patchCustomDatacenterRoutingSource(source, managerFile);
+
+    expect(patched).toContain(
+      "size_t count = customServerId.empty() ? config->dc_options.size() : 0;",
+    );
+    expect(patched).toContain("std::vector<TcpAddress> emptyAddresses;");
+    expect(patched).toContain("datacenter->replaceAddresses(addresses, 0);");
+    expect(patched).toContain("datacenter->replaceAddresses(emptyAddresses, 1);");
+    expect(patched).toContain("datacenter->replaceAddresses(addresses, 2);");
+    expect(patched).toContain("datacenter->replaceAddresses(emptyAddresses, 3);");
+    expect(patched.indexOf("replaceAddresses(addresses, 2)")).toBeLessThan(
+      patched.indexOf("resetAddressAndPortNum()"),
+    );
+    expect(patchCustomDatacenterRoutingSource(patched, managerFile)).toBe(patched);
   });
 });

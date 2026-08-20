@@ -9,6 +9,7 @@ import type { Upstream } from "../../src/upstreams.js";
 const featureRoot = path.dirname(fileURLToPath(import.meta.url));
 const messageObjectFile = "TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java";
 const imageLoaderFile = "TMessagesProj/src/main/java/org/telegram/messenger/ImageLoader.java";
+const animatedEmojiFile = "TMessagesProj/src/main/java/org/telegram/ui/Components/AnimatedEmojiDrawable.java";
 const gifVideoFile = "TMessagesProj/jni/gifvideo.cpp";
 const snifferRelative = "org/telegram/messenger/crossgram_animation/CrossgramRawAnimationSniffer.java";
 const ffmpegScripts = [
@@ -172,6 +173,31 @@ $1`,
   source = source.replace(
     "MessageObject.isGifDocument(imageLocation.webFile) || MessageObject.isGifDocument(imageLocation.document)",
     "MessageObject.isGifDocument(imageLocation.webFile) || MessageObject.isGifDocument(imageLocation.document)",
+  );
+  return source;
+}
+
+export function patchAnimatedEmojiRawAnimation(initial: string): string {
+  let source = replaceRegexOnce(
+    initial,
+    /mediaLocation\s*=\s*null;\s*\n(\s*)mediaFilter\s*=\s*filter;/,
+    "mediaLocation = MessageObject.isRawStickerMime(document.mime_type)\n"
+      + "$1        ? ImageLocation.getForDocument(document) : null;\n"
+      + "$1mediaFilter = filter;",
+    "MessageObject.isRawStickerMime(document.mime_type)\n",
+    animatedEmojiFile,
+    "load raw custom emoji from the main document instead of an absent thumbnail",
+  );
+  source = replaceRegexOnce(
+    source,
+    /else\s+if\s*\(MessageObject\.isAnimatedStickerDocument\(document, true\)\)\s*\{\s*\n(\s*)imageReceiver\.setImage\(mediaLocation, mediaFilter \+ "_firstframe",/,
+    "else if (MessageObject.isAnimatedStickerDocument(document, true)\n"
+      + "$1        || MessageObject.isRawStickerMime(document.mime_type)) {\n"
+      + "$1imageReceiver.setImage(mediaLocation, mediaFilter\n"
+      + "$1        + (MessageObject.isRawAnimatedStickerDocument(document) ? \"_firstframe\" : \"\"),",
+    "|| MessageObject.isRawStickerMime(document.mime_type))",
+    animatedEmojiFile,
+    "render raw static and animated custom emoji even when reaction animations are disabled",
   );
   return source;
 }
@@ -369,6 +395,13 @@ export async function applyRawAnimation(root: string, _upstream: Upstream): Prom
   const loaderTarget = path.join(root, imageLoaderFile);
   if (await writeUtf8IfChanged(loaderTarget, patchImageLoaderRawAnimation(await readUtf8(loaderTarget)))) {
     changedFiles.push(imageLoaderFile);
+  }
+  const animatedEmojiTarget = path.join(root, animatedEmojiFile);
+  if (await writeUtf8IfChanged(
+    animatedEmojiTarget,
+    patchAnimatedEmojiRawAnimation(await readUtf8(animatedEmojiTarget)),
+  )) {
+    changedFiles.push(animatedEmojiFile);
   }
   const gifVideoTarget = path.join(root, gifVideoFile);
   if (await writeUtf8IfChanged(gifVideoTarget, patchGifVideoRawAnimation(await readUtf8(gifVideoTarget)))) {

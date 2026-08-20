@@ -202,6 +202,42 @@ function replaceDelegateCalls(
   return updated;
 }
 
+export function patchCustomDatacenterRoutingSource(initial: string, file: string): string {
+  let source = editDeclarationBody(
+    initial,
+    /void\s+ConnectionsManager::updateDcSettings\s*\(/,
+    file,
+    "ConnectionsManager::updateDcSettings",
+    (body) => replaceRegexOnce(
+      body,
+      /size_t\s+count\s*=\s*config->dc_options\.size\(\);/,
+      "size_t count = customServerId.empty() ? config->dc_options.size() : 0;",
+      "customServerId.empty() ? config->dc_options.size() : 0",
+      file,
+      "keep configured custom datacenter routes instead of replacing them from help.getConfig",
+    ),
+  );
+  source = editDeclarationBody(
+    source,
+    /void\s+ConnectionsManager::applyDatacenterAddress\s*\(/,
+    file,
+    "ConnectionsManager::applyDatacenterAddress",
+    (body) => replaceRegexOnce(
+      body,
+      /^([ \t]*)datacenter->replaceAddresses\(addresses, 0\);[ \t]*$/m,
+      "$1std::vector<TcpAddress> emptyAddresses;\n"
+        + "$1datacenter->replaceAddresses(addresses, 0);\n"
+        + "$1datacenter->replaceAddresses(emptyAddresses, 1);\n"
+        + "$1datacenter->replaceAddresses(addresses, 2);\n"
+        + "$1datacenter->replaceAddresses(emptyAddresses, 3);",
+      "datacenter->replaceAddresses(addresses, 2);",
+      file,
+      "route both generic and media connections through the selected custom datacenter",
+    ),
+  );
+  return source;
+}
+
 async function patchManagerCpp(root: string, changed: string[]): Promise<void> {
   const file = "TMessagesProj/jni/tgnet/ConnectionsManager.cpp";
   const methods = await template("native/manager-methods.cpp");
@@ -233,6 +269,7 @@ async function patchManagerCpp(root: string, changed: string[]): Promise<void> {
       "ConnectionsManager::applyDnsConfig",
       (body) => replaceDelegateCalls(body, file, "applyDnsConfig special-config guard", 2, false),
     );
+    source = patchCustomDatacenterRoutingSource(source, file);
     source = replaceRegexOnce(
       source,
       /(?=ConnectionState\s+ConnectionsManager::getConnectionState\s*\()/,

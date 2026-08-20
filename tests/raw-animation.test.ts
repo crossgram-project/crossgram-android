@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   applyRawAnimation,
+  patchAnimatedEmojiRawAnimation,
   patchFfmpegRawAnimation,
   patchGifVideoRawAnimation,
   patchImageLoaderRawAnimation,
@@ -76,6 +77,31 @@ public class ImageLoader {
                 return;
             } else if (cacheImage.imageType == FileLoader.IMAGE_TYPE_ANIMATION) {
                 decodeAnimation();
+            }
+        }
+    }
+}`;
+
+const animatedEmojiFixture = `package org.telegram.ui.Components;
+public class AnimatedEmojiDrawable {
+    void initDocument(boolean onlyStaticPreview) {
+        Object mediaLocation;
+        String mediaFilter;
+        String filter = "34_34";
+        if ("application/x-tgsticker".equals(document.mime_type)) {
+            mediaLocation = ImageLocation.getForDocument(document);
+            mediaFilter = filter;
+        } else {
+            Object thumbDrawable = null;
+            mediaLocation = null;
+            mediaFilter = filter;
+        }
+        if (onlyStaticPreview) {
+            Object thumbLocation = null;
+            if ("video/webm".equals(document.mime_type)) {
+                imageReceiver.setImage(null);
+            } else if (MessageObject.isAnimatedStickerDocument(document, true)) {
+                imageReceiver.setImage(mediaLocation, mediaFilter + "_firstframe", thumbLocation, null, thumbDrawable, document.size, null, document, 1);
             }
         }
     }
@@ -185,6 +211,14 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patchImageLoaderRawAnimation(patched)).toBe(patched);
   });
 
+  it("loads raw custom emoji from the document body instead of an empty thumbnail", () => {
+    const patched = patchAnimatedEmojiRawAnimation(animatedEmojiFixture);
+    expect(patched).toContain("MessageObject.isRawStickerMime(document.mime_type)");
+    expect(patched).toContain("? ImageLocation.getForDocument(document) : null");
+    expect(patched).toContain("MessageObject.isRawAnimatedStickerDocument(document) ? \"_firstframe\" : \"\"");
+    expect(patchAnimatedEmojiRawAnimation(patched)).toBe(patched);
+  });
+
   it("enables APNG and its zlib dependency in FFmpeg idempotently", () => {
     const patched = patchFfmpegRawAnimation(ffmpegFixture, "build_ffmpeg.sh");
     expect(patched).toContain("--enable-zlib");
@@ -229,6 +263,9 @@ describe("Android raw GIF/APNG patch", () => {
       await mkdir(messenger, { recursive: true });
       await writeFile(path.join(messenger, "MessageObject.java"), messageObjectFixture, "utf8");
       await writeFile(path.join(messenger, "ImageLoader.java"), imageLoaderFixture, "utf8");
+      const components = path.join(root, "TMessagesProj/src/main/java/org/telegram/ui/Components");
+      await mkdir(components, { recursive: true });
+      await writeFile(path.join(components, "AnimatedEmojiDrawable.java"), animatedEmojiFixture, "utf8");
       const ffmpeg = path.join(root, "TMessagesProj/jni");
       await mkdir(ffmpeg, { recursive: true });
       await writeFile(path.join(ffmpeg, "build_ffmpeg_clang.sh"), ffmpegFixture, "utf8");

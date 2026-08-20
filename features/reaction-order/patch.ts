@@ -28,9 +28,23 @@ export function patchReactionOrder(initial: string): string {
   );
 }
 
+export function patchReactionActorPreview(initial: string): string {
+  return replaceRegexOnce(
+    initial,
+    /else if \(reactionCount\.count <= 3 && totalCount <= 3\) \{/,
+    `else if (!messageObject.messageOwner.reactions.recent_reactions.isEmpty()) {
+                            // CROSSGRAM: show the latest known actors as the bubble preview even
+                            // when the full reaction list contains more than three people.`,
+    "CROSSGRAM: show the latest known actors as the bubble preview",
+    reactionsLayoutFile,
+    "show recent reaction actors instead of a count-only preview",
+  );
+}
+
 export async function applyReactionOrder(root: string, upstream: Upstream): Promise<string[]> {
   if (upstream.id !== "nagram") return [];
   const target = path.join(root, reactionsLayoutFile);
-  if (!await writeUtf8IfChanged(target, patchReactionOrder(await readUtf8(target)))) return [];
+  const patched = patchReactionActorPreview(patchReactionOrder(await readUtf8(target)));
+  if (!await writeUtf8IfChanged(target, patched)) return [];
   return [reactionsLayoutFile];
 }

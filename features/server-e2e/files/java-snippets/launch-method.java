@@ -470,6 +470,14 @@
             return runCrossgramE2eWithMessage(intent, "reaction_inspect", target ->
                     inspectCrossgramE2eReaction(target, reaction));
         }
+        if ("reaction-actors".equals(command)) {
+            return runCrossgramE2eWithMessage(intent, "reaction_actors", this::inspectCrossgramE2eReactionActors);
+        }
+        if ("reaction-panel".equals(command)) {
+            boolean clearCache = intent.getBooleanExtra("crossgram_e2e_clear_reaction_cache", true);
+            return runCrossgramE2eWithMessage(intent, "reaction_panel", target ->
+                    inspectCrossgramE2eReactionPanel(target, clearCache));
+        }
         if ("send".equals(command)) {
             long peerId = intent.getLongExtra("crossgram_e2e_peer_id", 0);
             String peerType = intent.getStringExtra("crossgram_e2e_peer_type");
@@ -625,6 +633,421 @@
             AndroidUtilities.runOnUIThread(inspectRecent[0], 250);
         };
         AndroidUtilities.runOnUIThread(inspectRecent[0], 250);
+    }
+
+    private void inspectCrossgramE2eReactionActors(MessageObject target) {
+        if (target.messageOwner.reactions == null || target.messageOwner.reactions.results.isEmpty()) {
+            android.util.Log.e("CrossgramE2E", "reaction_actors_failed reason=no_reactions");
+            return;
+        }
+        TLRPC.TL_messages_getMessagesReactions refresh = new TLRPC.TL_messages_getMessagesReactions();
+        refresh.peer = MessagesController.getInstance(currentAccount).getInputPeer(target.getDialogId());
+        refresh.id.add(target.getId());
+        ConnectionsManager.getInstance(currentAccount).sendRequest(refresh, (response, error) -> {
+            if (error != null || !(response instanceof TLRPC.Updates)) {
+                android.util.Log.e("CrossgramE2E", "reaction_actors_failed reason=refresh error="
+                        + (error == null ? "invalid_response" : error.text));
+                return;
+            }
+            TLRPC.Updates updates = (TLRPC.Updates) response;
+            MessagesController controller = MessagesController.getInstance(currentAccount);
+            controller.putUsers(updates.users, false);
+            controller.putChats(updates.chats, false);
+            TLRPC.TL_messageReactions refreshed = null;
+            for (TLRPC.Update update : updates.updates) {
+                if (update instanceof org.telegram.tgnet.tl.TL_update.TL_updateMessageReactions
+                        && ((org.telegram.tgnet.tl.TL_update.TL_updateMessageReactions) update).msg_id
+                                == target.getId()) {
+                    refreshed = ((org.telegram.tgnet.tl.TL_update.TL_updateMessageReactions) update).reactions;
+                    break;
+                }
+            }
+            if (refreshed == null) {
+                android.util.Log.e("CrossgramE2E", "reaction_actors_failed reason=update_missing");
+                return;
+            }
+            TLRPC.TL_messageReactions finalRefreshed = refreshed;
+            AndroidUtilities.runOnUIThread(() -> {
+                target.messageOwner.reactions = finalRefreshed;
+                org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble layout =
+                        new org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble(
+                                new android.view.View(ApplicationLoader.applicationContext));
+                layout.setMessage(target, false, false, null);
+                int total = 0;
+                for (TLRPC.ReactionCount count : finalRefreshed.results) total += count.count;
+                java.util.HashSet<Long> previewPeers = new java.util.HashSet<>();
+                for (TLRPC.MessagePeerReaction actor : finalRefreshed.recent_reactions) {
+                    previewPeers.add(MessageObject.getPeerId(actor.peer_id));
+                }
+                int previewUsers = 0;
+                int previewButtons = 0;
+                try {
+                    java.lang.reflect.Field usersField =
+                            org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.ReactionButton.class
+                                    .getDeclaredField("users");
+                    usersField.setAccessible(true);
+                    for (org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.ReactionButton button
+                            : layout.reactionButtons) {
+                        java.util.ArrayList<?> users = (java.util.ArrayList<?>) usersField.get(button);
+                        if (users != null && !users.isEmpty()) {
+                            previewButtons++;
+                            previewUsers += users.size();
+                        }
+                    }
+                } catch (Throwable reflectionError) {
+                    android.util.Log.e("CrossgramE2E", "reaction_actors_failed reason=preview_reflection error="
+                            + reflectionError.getClass().getSimpleName());
+                    return;
+                }
+                final int finalTotal = total;
+                final int finalPreviewUsers = previewUsers;
+                final int finalPreviewButtons = previewButtons;
+
+                TLRPC.TL_messages_getMessageReactionsList list =
+                        new TLRPC.TL_messages_getMessageReactionsList();
+                list.peer = refresh.peer;
+                list.id = target.getId();
+                list.limit = 100;
+                ConnectionsManager.getInstance(currentAccount).sendRequest(list, (listResponse, listError) -> {
+                    if (listError != null || !(listResponse instanceof TLRPC.TL_messages_messageReactionsList)) {
+                        android.util.Log.e("CrossgramE2E", "reaction_actors_failed reason=list error="
+                                + (listError == null ? "invalid_response" : listError.text));
+                        return;
+                    }
+                    TLRPC.TL_messages_messageReactionsList actors =
+                            (TLRPC.TL_messages_messageReactionsList) listResponse;
+                    controller.putUsers(actors.users, false);
+                    controller.putChats(actors.chats, false);
+                    java.util.HashSet<Long> fullPeers = new java.util.HashSet<>();
+                    for (TLRPC.MessagePeerReaction actor : actors.reactions) {
+                        fullPeers.add(MessageObject.getPeerId(actor.peer_id));
+                    }
+                    boolean matches = fullPeers.containsAll(previewPeers);
+                    android.util.Log.i("CrossgramE2E", "reaction_actors_ready total=" + finalTotal
+                            + " recent=" + previewPeers.size() + " preview_users=" + finalPreviewUsers
+                            + " preview_buttons=" + finalPreviewButtons + " full=" + actors.reactions.size()
+                            + " matches=" + matches);
+                });
+            });
+        });
+        android.util.Log.i("CrossgramE2E", "function_called:getMessagesReactions target_id=" + target.getId());
+    }
+
+    private void inspectCrossgramE2eReactionPanel(MessageObject target, boolean clearCache) {
+        BaseFragment last = getActionBarLayout().getLastFragment();
+        if (!(last instanceof ChatActivity)) {
+            android.util.Log.e("CrossgramE2E", "reaction_panel_failed reason=chat_missing");
+            return;
+        }
+        ChatActivity chat = (ChatActivity) last;
+        android.view.ViewGroup root = (android.view.ViewGroup) getWindow().getDecorView();
+        android.view.View previous = root.findViewWithTag("crossgram_e2e_reaction_panel");
+        if (previous != null) {
+            root.removeView(previous);
+        }
+
+        java.util.LinkedHashMap<String, TLRPC.Document> documentsToClear = new java.util.LinkedHashMap<>();
+        for (TLRPC.TL_availableReaction reaction : MediaDataController.getInstance(currentAccount)
+                .getReactionsMap().values()) {
+            TLRPC.Document[] documents = {
+                    reaction.static_icon, reaction.appear_animation, reaction.select_animation,
+                    reaction.activate_animation, reaction.effect_animation, reaction.around_animation,
+                    reaction.center_icon
+            };
+            for (TLRPC.Document document : documents) {
+                if (document != null) {
+                    documentsToClear.put(FileLoader.getAttachFileName(document), document);
+                }
+            }
+        }
+
+        org.telegram.ui.Components.ReactionsContainerLayout panel =
+                new org.telegram.ui.Components.ReactionsContainerLayout(
+                        org.telegram.ui.Components.ReactionsContainerLayout.TYPE_DEFAULT,
+                        chat, chat.getContext(), currentAccount, chat.getResourceProvider());
+        panel.setTag("crossgram_e2e_reaction_panel");
+        panel.setPadding(AndroidUtilities.dp(28), AndroidUtilities.dp(4),
+                AndroidUtilities.dp(28), AndroidUtilities.dp(22));
+        panel.setDelegate(new org.telegram.ui.Components.ReactionsContainerLayout.ReactionsContainerDelegate() {
+            @Override
+            public void onReactionClicked(android.view.View view,
+                    org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction visibleReaction,
+                    boolean longpress, boolean addToRecent) {
+                // The E2E panel is read-only; it only exercises production rendering and loading.
+            }
+        });
+        android.widget.FrameLayout.LayoutParams params = new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                (int) (AndroidUtilities.dp(74) + panel.getTopOffset()), android.view.Gravity.TOP);
+        params.topMargin = AndroidUtilities.statusBarHeight + AndroidUtilities.dp(52);
+        panel.setLayoutParams(params);
+        panel.setMessage(target, chat.getCurrentChatInfo(), false);
+        panel.setTransitionProgress(1f);
+
+        java.util.LinkedHashMap<String, TLRPC.Document> coldDocuments = new java.util.LinkedHashMap<>();
+        for (org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction visible
+                : panel.getVisibleReactionsList()) {
+            if (visible.documentId != 0) {
+                TLRPC.Document document = org.telegram.ui.Components.AnimatedEmojiDrawable.findDocument(
+                        currentAccount, visible.documentId);
+                if (document != null) {
+                    coldDocuments.put(FileLoader.getAttachFileName(document), document);
+                }
+                continue;
+            }
+            if (visible.emojicon == null) {
+                continue;
+            }
+            TLRPC.TL_availableReaction reaction = MediaDataController.getInstance(currentAccount)
+                    .getReactionsMap().get(visible.emojicon);
+            if (reaction == null) {
+                continue;
+            }
+            TLRPC.Document[] documents = {
+                    reaction.appear_animation, reaction.select_animation, reaction.around_animation
+            };
+            for (TLRPC.Document document : documents) {
+                if (document != null) {
+                    coldDocuments.put(FileLoader.getAttachFileName(document), document);
+                }
+            }
+        }
+
+        if (clearCache) {
+            FileLoader loader = FileLoader.getInstance(currentAccount);
+            documentsToClear.putAll(coldDocuments);
+            for (TLRPC.Document document : documentsToClear.values()) {
+                loader.cancelLoadFile(document, true);
+                java.io.File path = loader.getPathToAttach(document, true);
+                if (path.exists() && !path.delete()) {
+                    android.util.Log.e("CrossgramE2E", "reaction_panel_failed reason=cache_delete file="
+                            + FileLoader.getAttachFileName(document));
+                    return;
+                }
+            }
+        }
+
+        root.addView(panel, params);
+        panel.bringToFront();
+        panel.startEnterAnimation(false);
+        android.util.Log.i("CrossgramE2E", "reaction_panel_opened visible="
+                + panel.getVisibleReactionsList().size() + " resources=" + coldDocuments.size()
+                + " cleared_resources=" + documentsToClear.size() + " cleared=" + clearCache);
+
+        final int[] attempts = { 0 };
+        final Runnable[] inspect = new Runnable[1];
+        inspect[0] = () -> {
+            int holders = 0;
+            int loadedHolders = 0;
+            int missingDocuments = 0;
+            java.util.HashSet<String> holderKeys = new java.util.HashSet<>();
+            for (int i = 0; i < panel.recyclerListView.getChildCount(); i++) {
+                android.view.View child = panel.recyclerListView.getChildAt(i);
+                if (!(child instanceof org.telegram.ui.Components.ReactionsContainerLayout.ReactionHolderView)) {
+                    continue;
+                }
+                holders++;
+                org.telegram.ui.Components.ReactionsContainerLayout.ReactionHolderView holder =
+                        (org.telegram.ui.Components.ReactionsContainerLayout.ReactionHolderView) child;
+                org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction visible =
+                        holder.currentReaction;
+                if (visible != null) {
+                    holderKeys.add(visible.documentId != 0
+                            ? "custom:" + visible.documentId : "emoji:" + visible.emojicon);
+                }
+                org.telegram.messenger.ImageReceiver enter = holder.enterImageView.getImageReceiver();
+                org.telegram.messenger.ImageReceiver loop = holder.loopImageView.animatedEmojiDrawable != null
+                        ? holder.loopImageView.animatedEmojiDrawable.getImageReceiver()
+                        : holder.loopImageView.getImageReceiver();
+                boolean enterLoaded = enter != null && enter.hasImageLoaded();
+                boolean loopLoaded = loop != null && loop.hasImageLoaded();
+                if ((holder.hasEnterAnimation && enterLoaded && loopLoaded)
+                        || (!holder.hasEnterAnimation && loopLoaded)) {
+                    loadedHolders++;
+                }
+            }
+
+            java.util.LinkedHashMap<String, TLRPC.Document> documents = new java.util.LinkedHashMap<>(coldDocuments);
+            for (org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction visible
+                    : panel.getVisibleReactionsList()) {
+                if (visible.documentId == 0) {
+                    continue;
+                }
+                TLRPC.Document document = org.telegram.ui.Components.AnimatedEmojiDrawable.findDocument(
+                        currentAccount, visible.documentId);
+                if (document == null) {
+                    missingDocuments++;
+                } else {
+                    documents.put(FileLoader.getAttachFileName(document), document);
+                }
+            }
+            int loadedFiles = 0;
+            FileLoader loader = FileLoader.getInstance(currentAccount);
+            for (TLRPC.Document document : documents.values()) {
+                if (loader.getPathToAttach(document, true).exists()) {
+                    loadedFiles++;
+                }
+            }
+            int expectedHolders = panel.getVisibleReactionsList().size();
+            boolean holdersReady = expectedHolders > 0 && holders == expectedHolders
+                    && loadedHolders == expectedHolders && holderKeys.size() == expectedHolders;
+            boolean filesReady = missingDocuments == 0 && !documents.isEmpty()
+                    && loadedFiles == documents.size();
+            if (holdersReady && filesReady) {
+                android.util.Log.i("CrossgramE2E", "reaction_panel_compact_loaded holders=" + holders
+                        + " loaded=" + loadedHolders + " files=" + loadedFiles
+                        + " resources=" + documents.size() + " missing_documents=0");
+                inspectCrossgramE2eExpandedReactionPanel(
+                        panel, holders, loadedHolders, loadedFiles, documents.size());
+                return;
+            }
+            if (attempts[0] % 20 == 0) {
+                android.util.Log.i("CrossgramE2E", "reaction_panel_progress holders=" + holders
+                        + " loaded=" + loadedHolders + " expected=" + expectedHolders
+                        + " files=" + loadedFiles + " resources=" + documents.size()
+                        + " missing_documents=" + missingDocuments);
+            }
+            if (++attempts[0] >= 240) {
+                android.util.Log.e("CrossgramE2E", "reaction_panel_failed reason=timeout holders=" + holders
+                        + " loaded=" + loadedHolders + " expected=" + expectedHolders
+                        + " files=" + loadedFiles + " resources=" + documents.size()
+                        + " missing_documents=" + missingDocuments);
+                return;
+            }
+            AndroidUtilities.runOnUIThread(inspect[0], 250);
+        };
+        AndroidUtilities.runOnUIThread(inspect[0], clearCache ? 750 : 250);
+    }
+
+    private void inspectCrossgramE2eExpandedReactionPanel(
+            org.telegram.ui.Components.ReactionsContainerLayout panel,
+            int compactHolders, int compactLoaded, int compactFiles, int compactResources) {
+        try {
+            java.lang.reflect.Method open = org.telegram.ui.Components.ReactionsContainerLayout.class
+                    .getDeclaredMethod("showCustomEmojiReactionDialog");
+            open.setAccessible(true);
+            open.invoke(panel);
+        } catch (Throwable error) {
+            android.util.Log.e("CrossgramE2E", "reaction_panel_failed reason=expand_exception error="
+                    + error.getClass().getSimpleName() + " message=" + error.getMessage(), error);
+            return;
+        }
+
+        final int[] attempts = { 0 };
+        final int[] lastProgress = { -1 };
+        final java.util.HashSet<Integer> loadedPositions = new java.util.HashSet<>();
+        final java.util.HashSet<String> loadedExpandedFiles = new java.util.HashSet<>();
+        final Runnable[] inspect = new Runnable[1];
+        inspect[0] = () -> {
+            org.telegram.ui.Components.Reactions.CustomEmojiReactionsWindow window = panel.getReactionsWindow();
+            org.telegram.ui.SelectAnimatedEmojiDialog dialog = window == null
+                    ? null : window.getSelectAnimatedEmojiDialog();
+            if (dialog == null || dialog.emojiGridView == null || dialog.emojiGridView.getAdapter() == null) {
+                if (++attempts[0] >= 360) {
+                    android.util.Log.e("CrossgramE2E", "reaction_panel_failed reason=expanded_missing");
+                    return;
+                }
+                AndroidUtilities.runOnUIThread(inspect[0], 250);
+                return;
+            }
+
+            androidx.recyclerview.widget.RecyclerView grid = dialog.emojiGridView;
+            int itemCount = grid.getAdapter().getItemCount();
+            int visibleCells = 0;
+            int loadedCells = 0;
+            boolean pageReady = true;
+            for (int i = 0; i < grid.getChildCount(); i++) {
+                android.view.View child = grid.getChildAt(i);
+                if (!(child instanceof org.telegram.ui.SelectAnimatedEmojiDialog.ImageViewEmoji)) {
+                    continue;
+                }
+                org.telegram.ui.SelectAnimatedEmojiDialog.ImageViewEmoji cell =
+                        (org.telegram.ui.SelectAnimatedEmojiDialog.ImageViewEmoji) child;
+                if (cell.empty) {
+                    continue;
+                }
+                visibleCells++;
+                int position = grid.getChildAdapterPosition(cell);
+                boolean ready;
+                boolean expectsNetworkDocument = false;
+                TLRPC.Document networkDocument = null;
+                if (cell.isDefaultReaction) {
+                    expectsNetworkDocument = true;
+                    TLRPC.TL_availableReaction reaction = cell.reaction == null
+                            ? null : MediaDataController.getInstance(currentAccount)
+                                    .getReactionsMap().get(cell.reaction.emojicon);
+                    networkDocument = reaction == null ? null : reaction.select_animation;
+                    ready = cell.imageReceiver != null && cell.imageReceiver.hasImageLoaded();
+                } else if (cell.drawable instanceof org.telegram.ui.Components.AnimatedEmojiDrawable) {
+                    expectsNetworkDocument = true;
+                    long documentId = cell.reaction != null && cell.reaction.documentId != 0
+                            ? cell.reaction.documentId
+                            : cell.span == null ? 0 : cell.span.getDocumentId();
+                    networkDocument = documentId == 0 ? null
+                            : org.telegram.ui.Components.AnimatedEmojiDrawable.findDocument(
+                                    currentAccount, documentId);
+                    org.telegram.messenger.ImageReceiver receiver =
+                            ((org.telegram.ui.Components.AnimatedEmojiDrawable) cell.drawable).getImageReceiver();
+                    ready = receiver != null && receiver.hasImageLoaded();
+                } else if (cell.imageReceiverToDraw != null) {
+                    expectsNetworkDocument = cell.document != null;
+                    networkDocument = cell.document;
+                    ready = cell.imageReceiverToDraw.hasImageLoaded();
+                } else {
+                    ready = cell.drawable != null;
+                }
+                if (expectsNetworkDocument) {
+                    String fileKey = networkDocument == null
+                            ? null : FileLoader.getAttachFileName(networkDocument);
+                    boolean fileReady = networkDocument != null
+                            && FileLoader.getInstance(currentAccount)
+                                    .getPathToAttach(networkDocument, true).exists();
+                    ready = ready && fileReady;
+                    if (ready && fileKey != null) {
+                        loadedExpandedFiles.add(fileKey);
+                    }
+                }
+                if (ready) {
+                    loadedCells++;
+                    if (position >= 0) loadedPositions.add(position);
+                } else {
+                    pageReady = false;
+                }
+            }
+
+            androidx.recyclerview.widget.RecyclerView.LayoutManager manager = grid.getLayoutManager();
+            int lastVisible = manager instanceof androidx.recyclerview.widget.LinearLayoutManager
+                    ? ((androidx.recyclerview.widget.LinearLayoutManager) manager).findLastVisibleItemPosition()
+                    : -1;
+            if (attempts[0] % 20 == 0 || lastVisible != lastProgress[0]) {
+                lastProgress[0] = lastVisible;
+                android.util.Log.i("CrossgramE2E", "reaction_panel_expanded_progress cells="
+                        + loadedCells + "/" + visibleCells + " positions=" + loadedPositions.size()
+                        + " files=" + loadedExpandedFiles.size()
+                        + " last=" + lastVisible + " items=" + itemCount);
+            }
+            if (pageReady && lastVisible >= itemCount - 1 && itemCount > 0
+                    && loadedPositions.size() == itemCount && !loadedExpandedFiles.isEmpty()) {
+                android.util.Log.i("CrossgramE2E", "reaction_panel_loaded holders=" + compactHolders
+                        + " loaded=" + compactLoaded + " files=" + compactFiles
+                        + " resources=" + compactResources + " expanded_cells="
+                        + loadedPositions.size() + " expanded_items=" + itemCount
+                        + " expanded_files=" + loadedExpandedFiles.size());
+                return;
+            }
+            if (pageReady && lastVisible >= 0 && lastVisible < itemCount - 1) {
+                grid.scrollToPosition(Math.min(itemCount - 1, lastVisible + 1));
+            }
+            if (++attempts[0] >= 360) {
+                android.util.Log.e("CrossgramE2E", "reaction_panel_failed reason=expanded_timeout cells="
+                        + loadedCells + "/" + visibleCells + " positions=" + loadedPositions.size()
+                        + " files=" + loadedExpandedFiles.size()
+                        + " last=" + lastVisible + " items=" + itemCount);
+                return;
+            }
+            AndroidUtilities.runOnUIThread(inspect[0], pageReady ? 350 : 250);
+        };
+        AndroidUtilities.runOnUIThread(inspect[0], 750);
     }
 
     private boolean runCrossgramE2eHistory(Intent intent, int hydrationAttempt) {
@@ -823,7 +1246,11 @@
                         try {
                             action.accept(target);
                         } catch (Throwable error) {
-                            android.util.Log.e("CrossgramE2E", operation + "_failed reason=action_exception target_id=" + targetId);
+                            android.util.Log.e("CrossgramE2E",
+                                    operation + "_failed reason=action_exception target_id=" + targetId
+                                            + " error=" + error.getClass().getSimpleName()
+                                            + " message=" + error.getMessage(),
+                                    error);
                         }
                     } else if (id == NotificationCenter.loadingMessagesFailed && (Integer) args[0] == classGuid) {
                         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.messagesDidLoad);

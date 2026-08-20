@@ -128,6 +128,8 @@ yarn e2e:android-server --command reply --peer-type user --conversation <platfor
   --target-id <tl-message-id> --message <reply-marker>
 yarn e2e:android-server --command reaction --peer-type user --conversation <platform-user-id> \
   --target-id <tl-message-id> --reaction 👍
+yarn e2e:android-server --command reaction-actors --conversation <platform-group-id> \
+  --target-id <tl-message-id>
 yarn e2e:android-server --command forward --peer-type user --conversation <platform-user-id> \
   --target-id <tl-message-id>
 yarn e2e:android-server --command edit --peer-type user --conversation <platform-user-id> \
@@ -151,6 +153,12 @@ Android 进程并重新加载目标消息，要求：刚点击的 reaction 是�
 `chosen_order` 已持久化、recent reactions 第一项一致，以及消息涉及的所有 custom emoji
 document 都能通过 `messages.getCustomEmojiDocuments` 重新取回。这同时覆盖“偶发加载不出”
 和“点击后不排最前”的冷启动回归。
+
+`reaction-actors` 是只读探针：先通过真实 `messages.getMessagesReactions` 刷新气泡中的
+`recent_reactions`，再构造生产 `ReactionsLayoutInBubble` 并检查其头像预览，最后调用
+`messages.getMessageReactionsList` 对照右键完整名单。目标消息必须有超过 3 个 reaction；
+测试要求外层预览至少显示一个真实用户、预览用户全部存在于完整名单中，且不再退化成
+纯数字按钮。
 
 会话列表实时刷新使用 QQNT E2E 明确允许的安全群：
 

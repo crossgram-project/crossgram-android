@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { patchReactionOrder } from "../features/reaction-order/patch.js";
+import { patchReactionActorPreview, patchReactionOrder } from "../features/reaction-order/patch.js";
 
 function upstreamComparator(newline = "\n"): string {
   return `private static class ButtonsComparator implements Comparator<ReactionButton> {${newline}
@@ -40,6 +40,23 @@ describe("reaction order patch", () => {
     expect(patched.indexOf("o1.isSelected != o2.isSelected"))
       .toBeLessThan(patched.indexOf("dialogId < 0 && o1.realCount"));
     expect(patched).not.toContain("if (dialogId >= 0)");
+  });
+
+  it("shows up to three current actors even when the total reaction count is larger", () => {
+    const upstream = `if (!isSmall && !isTag && messageObject.messageOwner.reactions.recent_reactions != null) {
+                        ArrayList<TLObject> users = null;
+                        if (messageObject.getDialogId() > 0) {
+                            users = new ArrayList<>();
+                        } else if (reactionCount.count <= 3 && totalCount <= 3) {
+                            users = new ArrayList<>();
+                        }
+                    }`;
+    const patched = patchReactionActorPreview(upstream);
+
+    expect(patched).toContain("!messageObject.messageOwner.reactions.recent_reactions.isEmpty()")
+    expect(patched).toContain("CROSSGRAM: show the latest known actors as the bubble preview")
+    expect(patched).not.toContain("reactionCount.count <= 3 && totalCount <= 3")
+    expect(patchReactionActorPreview(patched)).toBe(patched)
   });
 
   it("sorts selected reactions by descending chosen order", () => {
