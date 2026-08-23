@@ -72,6 +72,8 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
     { name: "inspectCrossgramE2eReaction", returnType: "void" },
     { name: "inspectCrossgramE2eReactionActors", returnType: "void" },
     { name: "inspectCrossgramE2eReactionPanel", returnType: "void" },
+    { name: "inspectCrossgramE2eReactionBitmap", returnType: "int[]" },
+    { name: "inspectCrossgramE2eRawReactionDocument", returnType: "boolean" },
     { name: "inspectCrossgramE2eExpandedReactionPanel", returnType: "void" },
     { name: "runCrossgramE2eHistory", returnType: "boolean" },
     { name: "runCrossgramE2eWithMessage", returnType: "boolean" },
@@ -134,9 +136,10 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
       continue;
     }
     let helperBody = "";
+    const escapedReturnType = helper.returnType.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     editDeclarationBody(
       helper.source,
-      new RegExp(`private\\s+${helper.returnType}\\s+${helper.name}\\s*\\(`),
+      new RegExp(`private\\s+${escapedReturnType}\\s+${helper.name}\\s*\\(`),
       "launch-method.java",
       `${helper.name} template`,
       (body) => {
@@ -146,7 +149,7 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
     );
     source = editDeclarationBody(
       source,
-      new RegExp(`private\\s+${helper.returnType}\\s+${helper.name}\\s*\\(`),
+      new RegExp(`private\\s+${escapedReturnType}\\s+${helper.name}\\s*\\(`),
       file,
       `LaunchActivity.${helper.name}`,
       () => helperBody,

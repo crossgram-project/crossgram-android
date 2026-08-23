@@ -839,6 +839,9 @@
         inspect[0] = () -> {
             int holders = 0;
             int loadedHolders = 0;
+            int expectedPixelHolders = 0;
+            int pixelReadyHolders = 0;
+            int unpremultipliedPixels = 0;
             int missingDocuments = 0;
             java.util.HashSet<String> holderKeys = new java.util.HashSet<>();
             for (int i = 0; i < panel.recyclerListView.getChildCount(); i++) {
@@ -864,6 +867,15 @@
                 if ((holder.hasEnterAnimation && enterLoaded && loopLoaded)
                         || (!holder.hasEnterAnimation && loopLoaded)) {
                     loadedHolders++;
+                    TLRPC.Document document = visible == null || visible.documentId == 0
+                            ? null : org.telegram.ui.Components.AnimatedEmojiDrawable.findDocument(
+                                    currentAccount, visible.documentId);
+                    if (inspectCrossgramE2eRawReactionDocument(document)) {
+                        expectedPixelHolders++;
+                        int[] pixelState = inspectCrossgramE2eReactionBitmap(loop);
+                        if (pixelState[0] > 0) pixelReadyHolders++;
+                        unpremultipliedPixels += pixelState[1];
+                    }
                 }
             }
 
@@ -890,12 +902,17 @@
             }
             int expectedHolders = panel.getVisibleReactionsList().size();
             boolean holdersReady = expectedHolders > 0 && holders == expectedHolders
-                    && loadedHolders == expectedHolders && holderKeys.size() == expectedHolders;
-            boolean filesReady = missingDocuments == 0 && !documents.isEmpty()
-                    && loadedFiles == documents.size();
+                    && loadedHolders == expectedHolders && pixelReadyHolders == expectedPixelHolders
+                    && unpremultipliedPixels == 0 && holderKeys.size() == expectedHolders;
+            // Compact holders are the rendering assertion. Telegram does not persist every
+            // enter/select/around helper animation merely because one compact frame is visible;
+            // the expanded sweep below validates each actual grid document and its file.
+            boolean filesReady = missingDocuments == 0 && !documents.isEmpty();
             if (holdersReady && filesReady) {
                 android.util.Log.i("CrossgramE2E", "reaction_panel_compact_loaded holders=" + holders
-                        + " loaded=" + loadedHolders + " files=" + loadedFiles
+                        + " loaded=" + loadedHolders + " pixels=" + pixelReadyHolders
+                        + "/" + expectedPixelHolders
+                        + " unpremultiplied=" + unpremultipliedPixels + " files=" + loadedFiles
                         + " resources=" + documents.size() + " missing_documents=0");
                 inspectCrossgramE2eExpandedReactionPanel(
                         panel, holders, loadedHolders, loadedFiles, documents.size());
@@ -904,12 +921,16 @@
             if (attempts[0] % 20 == 0) {
                 android.util.Log.i("CrossgramE2E", "reaction_panel_progress holders=" + holders
                         + " loaded=" + loadedHolders + " expected=" + expectedHolders
+                        + " pixels=" + pixelReadyHolders + "/" + expectedPixelHolders
+                        + " unpremultiplied=" + unpremultipliedPixels
                         + " files=" + loadedFiles + " resources=" + documents.size()
                         + " missing_documents=" + missingDocuments);
             }
             if (++attempts[0] >= 240) {
                 android.util.Log.e("CrossgramE2E", "reaction_panel_failed reason=timeout holders=" + holders
                         + " loaded=" + loadedHolders + " expected=" + expectedHolders
+                        + " pixels=" + pixelReadyHolders + "/" + expectedPixelHolders
+                        + " unpremultiplied=" + unpremultipliedPixels
                         + " files=" + loadedFiles + " resources=" + documents.size()
                         + " missing_documents=" + missingDocuments);
                 return;
@@ -917,6 +938,44 @@
             AndroidUtilities.runOnUIThread(inspect[0], 250);
         };
         AndroidUtilities.runOnUIThread(inspect[0], clearCache ? 750 : 250);
+    }
+
+    private int[] inspectCrossgramE2eReactionBitmap(org.telegram.messenger.ImageReceiver receiver) {
+        if (receiver == null) return new int[] { 0, 0 };
+        android.graphics.Bitmap bitmap = receiver.getBitmap();
+        if (bitmap == null || bitmap.isRecycled()
+                || bitmap.getConfig() != android.graphics.Bitmap.Config.ARGB_8888) {
+            return new int[] { 0, 0 };
+        }
+        java.nio.ByteBuffer bytes = java.nio.ByteBuffer.allocate(bitmap.getRowBytes() * bitmap.getHeight());
+        bitmap.copyPixelsToBuffer(bytes);
+        byte[] pixels = bytes.array();
+        int visible = 0;
+        int unpremultiplied = 0;
+        int rowBytes = bitmap.getRowBytes();
+        for (int y = 0; y < bitmap.getHeight(); y++) {
+            int row = y * rowBytes;
+            for (int x = 0; x < bitmap.getWidth(); x++) {
+                int offset = row + x * 4;
+                int alpha = pixels[offset + 3] & 0xff;
+                if (alpha == 0) continue;
+                visible++;
+                if ((pixels[offset] & 0xff) > alpha
+                        || (pixels[offset + 1] & 0xff) > alpha
+                        || (pixels[offset + 2] & 0xff) > alpha) {
+                    unpremultiplied++;
+                }
+            }
+        }
+        return new int[] { visible, unpremultiplied };
+    }
+
+    private boolean inspectCrossgramE2eRawReactionDocument(TLRPC.Document document) {
+        if (document == null || document.mime_type == null) return false;
+        String mime = document.mime_type.toLowerCase(java.util.Locale.ROOT);
+        return "image/png".equals(mime) || "image/apng".equals(mime)
+                || "image/gif".equals(mime) || "image/webp".equals(mime)
+                || "image/jpeg".equals(mime) || "image/jpg".equals(mime);
     }
 
     private void inspectCrossgramE2eExpandedReactionPanel(
@@ -943,7 +1002,7 @@
             org.telegram.ui.SelectAnimatedEmojiDialog dialog = window == null
                     ? null : window.getSelectAnimatedEmojiDialog();
             if (dialog == null || dialog.emojiGridView == null || dialog.emojiGridView.getAdapter() == null) {
-                if (++attempts[0] >= 360) {
+                if (++attempts[0] >= 1200) {
                     android.util.Log.e("CrossgramE2E", "reaction_panel_failed reason=expanded_missing");
                     return;
                 }
@@ -955,6 +1014,8 @@
             int itemCount = grid.getAdapter().getItemCount();
             int visibleCells = 0;
             int loadedCells = 0;
+            int pixelReadyCells = 0;
+            int unpremultipliedPixels = 0;
             boolean pageReady = true;
             for (int i = 0; i < grid.getChildCount(); i++) {
                 android.view.View child = grid.getChildAt(i);
@@ -971,12 +1032,14 @@
                 boolean ready;
                 boolean expectsNetworkDocument = false;
                 TLRPC.Document networkDocument = null;
+                org.telegram.messenger.ImageReceiver pixelReceiver = null;
                 if (cell.isDefaultReaction) {
                     expectsNetworkDocument = true;
                     TLRPC.TL_availableReaction reaction = cell.reaction == null
                             ? null : MediaDataController.getInstance(currentAccount)
                                     .getReactionsMap().get(cell.reaction.emojicon);
                     networkDocument = reaction == null ? null : reaction.select_animation;
+                    pixelReceiver = cell.imageReceiver;
                     ready = cell.imageReceiver != null && cell.imageReceiver.hasImageLoaded();
                 } else if (cell.drawable instanceof org.telegram.ui.Components.AnimatedEmojiDrawable) {
                     expectsNetworkDocument = true;
@@ -988,10 +1051,12 @@
                                     currentAccount, documentId);
                     org.telegram.messenger.ImageReceiver receiver =
                             ((org.telegram.ui.Components.AnimatedEmojiDrawable) cell.drawable).getImageReceiver();
+                    pixelReceiver = receiver;
                     ready = receiver != null && receiver.hasImageLoaded();
                 } else if (cell.imageReceiverToDraw != null) {
                     expectsNetworkDocument = cell.document != null;
                     networkDocument = cell.document;
+                    pixelReceiver = cell.imageReceiverToDraw;
                     ready = cell.imageReceiverToDraw.hasImageLoaded();
                 } else {
                     ready = cell.drawable != null;
@@ -1005,6 +1070,16 @@
                     ready = ready && fileReady;
                     if (ready && fileKey != null) {
                         loadedExpandedFiles.add(fileKey);
+                    }
+                    if (ready && inspectCrossgramE2eRawReactionDocument(networkDocument)) {
+                        int[] pixelState = inspectCrossgramE2eReactionBitmap(pixelReceiver);
+                        if (pixelState[0] > 0) {
+                            pixelReadyCells++;
+                        } else {
+                            ready = false;
+                        }
+                        unpremultipliedPixels += pixelState[1];
+                        if (pixelState[1] > 0) ready = false;
                     }
                 }
                 if (ready) {
@@ -1023,6 +1098,7 @@
                 lastProgress[0] = lastVisible;
                 android.util.Log.i("CrossgramE2E", "reaction_panel_expanded_progress cells="
                         + loadedCells + "/" + visibleCells + " positions=" + loadedPositions.size()
+                        + " pixels=" + pixelReadyCells + " unpremultiplied=" + unpremultipliedPixels
                         + " files=" + loadedExpandedFiles.size()
                         + " last=" + lastVisible + " items=" + itemCount);
             }
@@ -1032,15 +1108,17 @@
                         + " loaded=" + compactLoaded + " files=" + compactFiles
                         + " resources=" + compactResources + " expanded_cells="
                         + loadedPositions.size() + " expanded_items=" + itemCount
-                        + " expanded_files=" + loadedExpandedFiles.size());
+                        + " expanded_files=" + loadedExpandedFiles.size()
+                        + " unpremultiplied=" + unpremultipliedPixels);
                 return;
             }
             if (pageReady && lastVisible >= 0 && lastVisible < itemCount - 1) {
                 grid.scrollToPosition(Math.min(itemCount - 1, lastVisible + 1));
             }
-            if (++attempts[0] >= 360) {
+            if (++attempts[0] >= 1200) {
                 android.util.Log.e("CrossgramE2E", "reaction_panel_failed reason=expanded_timeout cells="
                         + loadedCells + "/" + visibleCells + " positions=" + loadedPositions.size()
+                        + " pixels=" + pixelReadyCells + " unpremultiplied=" + unpremultipliedPixels
                         + " files=" + loadedExpandedFiles.size()
                         + " last=" + lastVisible + " items=" + itemCount);
                 return;

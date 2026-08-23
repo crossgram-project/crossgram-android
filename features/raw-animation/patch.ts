@@ -242,6 +242,16 @@ export function patchGifVideoRawAnimation(initial: string): string {
       "dataArr[4] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);",
       "dataArr[4] = crossgramDurationMs(info);",
     );
+  if (!source.includes("#include <libavutil/pixdesc.h>")) {
+    source = replaceRegexOnce(
+      source,
+      /(#include\s+<libavutil\/intmath\.h>\s*\n)/,
+      "$1#include <libavutil/pixdesc.h>\n",
+      "#include <libavutil/pixdesc.h>",
+      gifVideoFile,
+      "inspect decoded APNG alpha formats",
+    );
+  }
   source = replaceRegexOnce(
     source,
     /(?=^extern\s+"C"\s+JNIEXPORT\s+void\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFile(?:Native_nGetVideoInfo|Drawable_getVideoInfo))/m,
@@ -260,6 +270,93 @@ export function patchGifVideoRawAnimation(initial: string): string {
     gifVideoFile,
     "avoid APNG AV_NOPTS_VALUE duration overflow",
   );
+  source = source.replace(
+    `static bool crossgramCanWriteFrame(const AVFrame *frame) {
+    return frame != nullptr
+            && frame->format > AV_PIX_FMT_NONE
+            && frame->format < AV_PIX_FMT_NB;
+}`,
+    `static bool crossgramCanWriteFrame(const AVFrame *frame) {
+    if (frame == nullptr
+            || frame->format <= AV_PIX_FMT_NONE
+            || frame->format >= AV_PIX_FMT_NB) {
+        return false;
+    }
+    return frame->format == AV_PIX_FMT_YUVA420P
+            || sws_isSupportedInput((AVPixelFormat) frame->format) > 0;
+}`,
+  );
+  source = replaceRegexOnce(
+    source,
+    /(?=^static\s+(?:inline\s+)?void\s+writeFrameToBitmap\s*\()/m,
+    `static bool crossgramFrameNeedsPremultiplication(const AVFrame *frame) {
+    if (frame == nullptr || frame->format == AV_PIX_FMT_YUVA420P) {
+        // I420AlphaToARGBMatrix below already attenuates YUVA pixels.
+        return false;
+    }
+    const AVPixFmtDescriptor *descriptor = av_pix_fmt_desc_get((AVPixelFormat) frame->format);
+    return descriptor != nullptr && (descriptor->flags & AV_PIX_FMT_FLAG_ALPHA) != 0;
+}
+
+static void crossgramPremultiplyBitmap(
+        uint8_t *pixels, int32_t stride, int32_t width, int32_t height) {
+    for (int32_t y = 0; y < height; y++) {
+        uint8_t *pixel = pixels + y * stride;
+        for (int32_t x = 0; x < width; x++, pixel += 4) {
+            const uint32_t alpha = pixel[3];
+            if (alpha == 255) continue;
+            pixel[0] = (uint8_t) ((pixel[0] * alpha + 127) / 255);
+            pixel[1] = (uint8_t) ((pixel[1] * alpha + 127) / 255);
+            pixel[2] = (uint8_t) ((pixel[2] * alpha + 127) / 255);
+        }
+    }
+}
+
+`,
+    "crossgramFrameNeedsPremultiplication(const AVFrame *frame)",
+    gifVideoFile,
+    "premultiply APNG alpha before Android Canvas composites the bitmap",
+  );
+  const legacyBitmapWriter = /static\s+(?:inline\s+)?void\s+writeFrameToBitmap\s*\(\s*JNIEnv\s*\*\s*env\s*,\s*VideoInfo\s*\*\s*info\s*,\s*jintArray\s+data\s*,\s*jobject\s+bitmap\s*\)/;
+  const modernBitmapWriter = /static\s+(?:inline\s+)?void\s+writeFrameToBitmap\s*\([^)]*AVFrame\s*\*\s*frame[^)]*\)/;
+  const premultiplyBitmapWriter = (pattern: RegExp, frame: string): boolean => {
+    let found = false;
+    try {
+      source = editDeclarationBody(
+        source,
+        pattern,
+        gifVideoFile,
+        "writeFrameToBitmap alpha output",
+        (body) => {
+          found = true;
+          if (body.includes("crossgramPremultiplyBitmap(")) return body;
+          const unlock = "    AndroidBitmap_unlockPixels(env, bitmap);";
+          if (!body.includes(unlock)) {
+            throw new PatchError(gifVideoFile, "writeFrameToBitmap unlock anchor was not found");
+          }
+          return body.replace(
+            unlock,
+            `    if (crossgramFrameNeedsPremultiplication(${frame})) {
+        crossgramPremultiplyBitmap(
+                (uint8_t *) pixels, bitmapStride, bitmapWidth, bitmapHeight);
+    }
+
+${unlock}`,
+          );
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof PatchError) || found) throw error;
+    }
+    return found;
+  };
+  const patchedLegacyWriter = premultiplyBitmapWriter(legacyBitmapWriter, "info->frame");
+  const patchedModernWriter = patchedLegacyWriter
+    ? false
+    : premultiplyBitmapWriter(modernBitmapWriter, "frame");
+  if (!patchedLegacyWriter && !patchedModernWriter) {
+    throw new PatchError(gifVideoFile, "writeFrameToBitmap declaration was not found");
+  }
   const legacyFrameFormatCheck = String.raw`if\s*\(info->frame->format\s*==\s*AV_PIX_FMT_YUV444P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUV420P\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_BGRA\s*\|\|\s*info->frame->format\s*==\s*AV_PIX_FMT_YUVJ420P\)\s*\{`;
   const seekPattern = new RegExp(
     `(extern\\s+"C"\\s+JNIEXPORT\\s+void\\s+JNICALL\\s+Java_org_telegram_ui_Components_AnimatedFile(?:Native_nSeekToMs|Drawable_seekToMs)[\\s\\S]*?)${legacyFrameFormatCheck}`,
@@ -322,9 +419,13 @@ export function patchGifVideoRawAnimation(initial: string): string {
     source,
     /(?=^extern\s+"C"\s+JNIEXPORT\s+void\s+JNICALL\s+Java_org_telegram_ui_Components_AnimatedFile(?:Native_nGetVideoInfo|Drawable_getVideoInfo))/m,
     `static bool crossgramCanWriteFrame(const AVFrame *frame) {
-    return frame != nullptr
-            && frame->format > AV_PIX_FMT_NONE
-            && frame->format < AV_PIX_FMT_NB;
+    if (frame == nullptr
+            || frame->format <= AV_PIX_FMT_NONE
+            || frame->format >= AV_PIX_FMT_NB) {
+        return false;
+    }
+    return frame->format == AV_PIX_FMT_YUVA420P
+            || sws_isSupportedInput((AVPixelFormat) frame->format) > 0;
 }
 
 `,

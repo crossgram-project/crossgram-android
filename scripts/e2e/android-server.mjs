@@ -1118,7 +1118,6 @@ async function main() {
           const expandedFiles = Number(loaded.expanded_files);
           if (Number(loaded.loaded) !== Number(loaded.holders)
               || Number(loaded.holders) !== Number(opened.visible)
-              || Number(loaded.files) !== Number(loaded.resources)
               || expandedCells !== expandedItems
               || expandedItems <= Number(opened.visible)
               || expandedFiles <= 0) {

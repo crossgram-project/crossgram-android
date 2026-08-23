@@ -115,6 +115,14 @@ const ffmpegFixture = `./configure \\
 `;
 
 const gifVideoFixture = `
+#include <libavutil/intmath.h>
+static inline void writeFrameToBitmap(JNIEnv *env, VideoInfo *info, jintArray data, jobject bitmap) {
+    void *pixels;
+    int32_t bitmapStride = 16;
+    int32_t bitmapWidth = 4;
+    int32_t bitmapHeight = 4;
+    AndroidBitmap_unlockPixels(env, bitmap);
+}
 extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo() {
     dataArr[PARAM_NUM_DURATION] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);
 }
@@ -148,6 +156,14 @@ const drawableGifVideoFixture = gifVideoFixture
   );
 
 const modernGifVideoFixture = `
+#include <libavutil/intmath.h>
+static inline void writeFrameToBitmap(JNIEnv *env, VideoInfo *info, AVFrame *frame, jintArray data, jobject bitmap) {
+    void *pixels;
+    int32_t bitmapStride = 16;
+    int32_t bitmapWidth = 4;
+    int32_t bitmapHeight = 4;
+    AndroidBitmap_unlockPixels(env, bitmap);
+}
 extern "C" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo() {
     dataArr[PARAM_NUM_DURATION] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);
 }
@@ -232,6 +248,11 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patched).toContain("info->fmt_ctx->duration == AV_NOPTS_VALUE");
     expect(patched.match(/crossgramDurationMs\(info\)/g)).toHaveLength(2);
     expect(patched).toContain("crossgramCanWriteFrame(const AVFrame *frame)");
+    expect(patched).toContain("sws_isSupportedInput((AVPixelFormat) frame->format)");
+    expect(patched).toContain("crossgramFrameNeedsPremultiplication(const AVFrame *frame)");
+    expect(patched).toContain("crossgramPremultiplyBitmap(");
+    expect(patched).toContain("pixel[0] = (uint8_t) ((pixel[0] * alpha + 127) / 255);");
+    expect(patched).toContain("crossgramFrameNeedsPremultiplication(info->frame)");
     expect(patched.match(/if \(crossgramCanWriteFrame\(info->frame\)\) \{/g)).toHaveLength(2);
     expect(patched).toContain("if (bitmap != nullptr && crossgramCanWriteFrame(info->frame)) {");
     expect(patched).not.toContain("bitmap != nullptr && (info->frame->format == AV_PIX_FMT_YUV420P");
@@ -252,6 +273,7 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patched).toContain("crossgramDurationMs(VideoInfo *info)");
     expect(patched.match(/crossgramDurationMs\(info\)/g)).toHaveLength(2);
     expect(patched).not.toContain("crossgramCanWriteFrame(const AVFrame *frame)");
+    expect(patched).toContain("crossgramFrameNeedsPremultiplication(frame)");
     expect(patched).toContain("VideoFrameReader::Status");
     expect(patchGifVideoRawAnimation(patched)).toBe(patched);
   });

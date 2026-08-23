@@ -154,6 +154,13 @@ Android 进程并重新加载目标消息，要求：刚点击的 reaction 是�
 document 都能通过 `messages.getCustomEmojiDocuments` 重新取回。这同时覆盖“偶发加载不出”
 和“点击后不排最前”的冷启动回归。
 
+`reaction-panel` 还会逐页读取真实 `ImageReceiver` 的 ARGB_8888 像素：每个网络 reaction
+必须至少产生一个非透明像素，且 native 动画帧写入 Android Bitmap 后所有颜色通道都不能
+大于 alpha。后一个断言专门防止 APNG 直通解码产生未预乘 alpha，避免透明边缘显示成
+绿色/青色描边或灰色方块。紧凑栏以实际接收器像素为准；展开面板再逐项要求对应文件已经
+落盘，避免把 Telegram 不会持久化的 enter/select/around 辅助动画误判成加载失败。冷缓存
+全量面板允许最多 5 分钟，和 runner 的超时一致，不能在只加载了首屏时提前通过。
+
 `reaction-actors` 是只读探针：先通过真实 `messages.getMessagesReactions` 刷新气泡中的
 `recent_reactions`，再构造生产 `ReactionsLayoutInBubble` 并检查其头像预览，最后调用
 `messages.getMessageReactionsList` 对照右键完整名单。目标消息必须有超过 3 个 reaction；
