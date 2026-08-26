@@ -184,9 +184,13 @@ public final class Harness {
       expect(changed).toContain("TMessagesProj/src/main/java/org/telegram/messenger/SendMessagesHelper.java");
       const runtime = await readFile(path.join(path.dirname(upload),
         "crossgram_upload/CrossgramFastUpload.java"), "utf8");
-      expect(runtime).toContain("PREPARE_MEDIA_UPLOAD_V2_CONSTRUCTOR = 0xf75adc0f");
+      expect(runtime).toContain("PREPARE_MEDIA_UPLOAD_V3_CONSTRUCTOR = 0xf75adc10");
       expect(runtime).toContain("request.sha1Checkpoints = hashes.sha1Checkpoints;");
       expect(runtime).toMatch(/writeByteArray\(sha1\);\s+stream\.writeByteArray\(sha1Checkpoints\);\s+stream\.writeByteArray\(file10mMd5\);/);
+      expect(runtime).toContain("MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH");
+      expect(runtime).toContain("MediaMetadataRetriever.METADATA_KEY_DURATION");
+      expect(runtime).toContain("Bitmap.CompressFormat.JPEG");
+      expect(runtime).toMatch(/writeDouble\(duration\);\s+stream\.writeByteArray\(thumbnail\);\s+stream\.writeInt32\(thumbnailWidth\);\s+stream\.writeInt32\(thumbnailHeight\);/);
       expect(runtime).toContain("AbstractSerializedData stream");
     } finally {
       await rm(root, { recursive: true, force: true });
