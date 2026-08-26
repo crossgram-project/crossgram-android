@@ -13,8 +13,9 @@ RPC、URL 或 HTTP 请求失败时自动回退到原有 `upload.getFile` relay �
 `getCrossgramDownloadTransport()` 暴露 `direct` / `relay` 状态，日志使用
 `crossgram_download_transport=<direct|relay>` 标记。
 
-上传本地文件时，修改版客户端会在后台一次计算 MD5、SHA-1 和前 10 MiB MD5，
-再调用 `crossgram.prepareMediaUpload` 查询 QQ 是否命中秒传。命中时继续复用原有
+上传本地文件时，修改版客户端会在后台一次计算 MD5、SHA-1、每 1 MiB 的 cumulative
+SHA-1 checkpoint 和前 10 MiB MD5，再调用 `crossgram.prepareMediaUploadV2` 查询 QQ
+是否命中秒传并允许服务端并行流式上传 Highway。命中时继续复用原有
 `InputFile` 发送流程，但不再发送任何 `upload.saveFilePart`；RPC 失败、超时或未命中时
 自动继续原生分片上传。加密聊天、流式转码、语音和圆形视频不会执行秒传查询。
 

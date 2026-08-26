@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Hash-first Crossgram upload probe. A miss or any error falls back to saveFilePart. */
 public final class CrossgramFastUpload {
-    private static final int PREPARE_MEDIA_UPLOAD_CONSTRUCTOR = 0xf75adc0e;
+    private static final int PREPARE_MEDIA_UPLOAD_V2_CONSTRUCTOR = 0xf75adc0f;
     private static final int MAX_TARGETS = 512;
     private static final ConcurrentHashMap<String, Target> TARGETS = new ConcurrentHashMap<>();
 
@@ -77,6 +77,7 @@ public final class CrossgramFastUpload {
                 request.mimeType = mimeType(request.name);
                 request.md5 = hashes.md5;
                 request.sha1 = hashes.sha1;
+                request.sha1Checkpoints = hashes.sha1Checkpoints;
                 request.file10mMd5 = hashes.file10mMd5;
                 ConnectionsManager.getInstance(account).sendRequest(request, (response, error) -> {
                     boolean hit = response instanceof TLRPC.TL_boolTrue;
@@ -107,6 +108,7 @@ public final class CrossgramFastUpload {
         String mimeType;
         byte[] md5;
         byte[] sha1;
+        byte[] sha1Checkpoints;
         byte[] file10mMd5;
 
         @Override
@@ -116,7 +118,7 @@ public final class CrossgramFastUpload {
 
         @Override
         public void serializeToStream(OutputSerializedData stream) {
-            stream.writeInt32(PREPARE_MEDIA_UPLOAD_CONSTRUCTOR);
+            stream.writeInt32(PREPARE_MEDIA_UPLOAD_V2_CONSTRUCTOR);
             peer.serializeToStream(stream);
             stream.writeInt64(fileId);
             stream.writeString(name);
@@ -125,6 +127,7 @@ public final class CrossgramFastUpload {
             stream.writeString(mimeType);
             stream.writeByteArray(md5);
             stream.writeByteArray(sha1);
+            stream.writeByteArray(sha1Checkpoints);
             stream.writeByteArray(file10mMd5);
             stream.writeInt32(0);
             stream.writeInt32(0);

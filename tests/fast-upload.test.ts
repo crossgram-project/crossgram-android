@@ -89,7 +89,7 @@ describe("Android hash-first upload patch", () => {
     expect(patchSendMessagesHelper(patched)).toBe(patched);
   });
 
-  it("computes full MD5/SHA-1 and first-10-MiB MD5 in one local pass", async () => {
+  it("computes full hashes and a final SHA-1 checkpoint in one local pass", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "crossgram-fast-upload-hash-"));
     const packageDir = path.join(root, "org/telegram/messenger/crossgram_upload");
     try {
@@ -108,7 +108,8 @@ public final class Harness {
   }
   public static void main(String[] args) throws Exception {
     CrossgramFastUploadHash.Result result = CrossgramFastUploadHash.compute(new File(args[0]));
-    System.out.print(result.size + ":" + hex(result.md5) + ":" + hex(result.sha1) + ":" + hex(result.file10mMd5));
+    System.out.print(result.size + ":" + hex(result.md5) + ":" + hex(result.sha1) + ":"
+        + hex(result.sha1Checkpoints) + ":" + hex(result.file10mMd5));
   }
 }`);
       const payload = path.join(root, "payload.bin");
@@ -116,7 +117,54 @@ public final class Harness {
       await exec("javac", [path.join(packageDir, "CrossgramFastUploadHash.java"), path.join(packageDir, "Harness.java")]);
       const result = await exec("java", ["-cp", root, "org.telegram.messenger.crossgram_upload.Harness", payload]);
       expect(result.stdout).toBe(
-        "4:08d6c05a21512a79a1dfeb9d2a8f262f:12dada1fff4d4787ade3333147202c3b443e376f:08d6c05a21512a79a1dfeb9d2a8f262f",
+        "4:08d6c05a21512a79a1dfeb9d2a8f262f:12dada1fff4d4787ade3333147202c3b443e376f:"
+        + "12dada1fff4d4787ade3333147202c3b443e376f:08d6c05a21512a79a1dfeb9d2a8f262f",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("emits little-endian cumulative SHA-1 state at 1 MiB and the standard final digest", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "crossgram-fast-upload-checkpoints-"));
+    const packageDir = path.join(root, "org/telegram/messenger/crossgram_upload");
+    try {
+      await mkdir(packageDir, { recursive: true });
+      const source = path.resolve(
+        "features/fast-upload/files/java/org/telegram/messenger/crossgram_upload/CrossgramFastUploadHash.java",
+      );
+      await writeFile(path.join(packageDir, "CrossgramFastUploadHash.java"), await readFile(source));
+      await writeFile(path.join(packageDir, "Harness.java"), `package org.telegram.messenger.crossgram_upload;
+import java.io.File;
+public final class Harness {
+  private static String hex(byte[] value) {
+    StringBuilder out = new StringBuilder();
+    for (byte item : value) out.append(String.format("%02x", item & 255));
+    return out.toString();
+  }
+  public static void main(String[] args) throws Exception {
+    CrossgramFastUploadHash.Result result = CrossgramFastUploadHash.compute(new File(args[0]));
+    System.out.print(result.size + ":" + hex(result.md5) + ":" + hex(result.sha1) + ":"
+        + hex(result.sha1Checkpoints) + ":" + hex(result.file10mMd5));
+  }
+}`);
+      const payload = path.join(root, "payload.bin");
+      const bytes = Buffer.allocUnsafe(1024 * 1024 + 17);
+      for (let index = 0; index < bytes.length; index++) bytes[index] = (index * 31 + 7) & 0xff;
+      await writeFile(payload, bytes);
+      await exec("javac", [path.join(packageDir, "CrossgramFastUploadHash.java"), path.join(packageDir, "Harness.java")]);
+      const result = await exec("java", ["-cp", root, "org.telegram.messenger.crossgram_upload.Harness", payload]);
+      expect(result.stdout).toBe(
+        "1048593:ec44d86550a74d4be24feae4f44586f4:d1ab4c8c4fd8c7c634c9ba29ff752b0311dbe9c8:"
+        + "ab9a20fd6c98fc1f8f0c985cd552ff14c6feacfdd1ab4c8c4fd8c7c634c9ba29ff752b0311dbe9c8:"
+        + "ec44d86550a74d4be24feae4f44586f4",
+      );
+
+      await writeFile(payload, bytes.subarray(0, 1024 * 1024));
+      const exact = await exec("java", ["-cp", root, "org.telegram.messenger.crossgram_upload.Harness", payload]);
+      expect(exact.stdout).toBe(
+        "1048576:3f2c8bd9cfde6550fdff4b36617c3261:95421610b8ddd86c86e3269bfd24d2a79199245f:"
+        + "95421610b8ddd86c86e3269bfd24d2a79199245f:3f2c8bd9cfde6550fdff4b36617c3261",
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -136,7 +184,9 @@ public final class Harness {
       expect(changed).toContain("TMessagesProj/src/main/java/org/telegram/messenger/SendMessagesHelper.java");
       const runtime = await readFile(path.join(path.dirname(upload),
         "crossgram_upload/CrossgramFastUpload.java"), "utf8");
-      expect(runtime).toContain("PREPARE_MEDIA_UPLOAD_CONSTRUCTOR = 0xf75adc0e");
+      expect(runtime).toContain("PREPARE_MEDIA_UPLOAD_V2_CONSTRUCTOR = 0xf75adc0f");
+      expect(runtime).toContain("request.sha1Checkpoints = hashes.sha1Checkpoints;");
+      expect(runtime).toMatch(/writeByteArray\(sha1\);\s+stream\.writeByteArray\(sha1Checkpoints\);\s+stream\.writeByteArray\(file10mMd5\);/);
       expect(runtime).toContain("AbstractSerializedData stream");
     } finally {
       await rm(root, { recursive: true, force: true });
