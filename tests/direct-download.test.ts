@@ -194,10 +194,13 @@ public final class Harness {
       ]);
       const values = [
         "bridge-media:42",
+        "bridge-media:42:781234567890",
         "bridge-sticker:qq:favorites/abc:0",
         "bridge-sticker:qqnt:stickers:favorite:direct:7",
         "bridge-reaction-resource:7002:1",
         "bridge-media:0",
+        "bridge-media:42:01",
+        "bridge-media:42:781:extra",
         "bridge-sticker:qq::1",
         "bridge-sticker:qq:item:-1",
         "bridge-reaction-resource:0:1",
@@ -206,7 +209,7 @@ public final class Harness {
       ];
       const result = await exec("java", ["-cp", root,
         "org.telegram.messenger.crossgram_direct.Harness", ...values]);
-      expect(result.stdout).toBe("1111000000");
+      expect(result.stdout).toBe("1111100000000");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
