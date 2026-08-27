@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 
 /** Strictly recognizes the bridge references for which crossgram.getFileUrl is defined. */
 final class CrossgramBridgeFileReference {
-    private static final Pattern MEDIA = Pattern.compile("bridge-media:[1-9][0-9]*(?::[1-9][0-9]*)?");
+    private static final Pattern MEDIA = Pattern.compile("bridge-media:[1-9][0-9]*");
     private static final Pattern STICKER = Pattern.compile(
             "bridge-sticker:[^:\\x00-\\x1f\\x7f]+:[^\\x00-\\x1f\\x7f]+:[0-9]+");
     private static final Pattern REACTION = Pattern.compile(
