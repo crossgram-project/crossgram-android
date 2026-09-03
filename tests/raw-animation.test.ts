@@ -259,6 +259,16 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patchGifVideoRawAnimation(patched)).toBe(patched);
   });
 
+  it("accepts Telegram's stride-aware legacy bitmap writer", () => {
+    const stridedFixture = gifVideoFixture
+      .replace("jobject bitmap) {", "jobject bitmap, jint stride) {")
+      .replace("    int32_t bitmapStride = 16;\n", "");
+    const patched = patchGifVideoRawAnimation(stridedFixture);
+    expect(patched).toContain("crossgramPremultiplyBitmap(");
+    expect(patched).toContain("(uint8_t *) pixels, stride, bitmapWidth, bitmapHeight);");
+    expect(patchGifVideoRawAnimation(patched)).toBe(patched);
+  });
+
   it("patches legacy AnimatedFileDrawable JNI names used by Telegram and Nullgram", () => {
     const patched = patchGifVideoRawAnimation(drawableGifVideoFixture);
     expect(patched).toContain("crossgramDurationMs(VideoInfo *info)");
@@ -276,6 +286,16 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patched).toContain("crossgramFrameNeedsPremultiplication(frame)");
     expect(patched).toContain("VideoFrameReader::Status");
     expect(patchGifVideoRawAnimation(patched)).toBe(patched);
+  });
+
+  it("finds a stable libavutil include in VideoFrameReader sources", () => {
+    const modernWithoutIntmath = modernGifVideoFixture.replace(
+      "#include <libavutil/intmath.h>",
+      "#include <libavutil/eval.h>",
+    );
+    const patched = patchGifVideoRawAnimation(modernWithoutIntmath);
+    expect(patched).toContain("#include <libavutil/pixdesc.h>");
+    expect(patched).toContain("crossgramFrameNeedsPremultiplication(frame)");
   });
 
   it("installs the sniffer and patches a source tree", async () => {

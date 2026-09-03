@@ -34,6 +34,33 @@ describe("recalled Android patch", () => {
     expect(patchRecalledTlrpc(patched)).toBe(patched);
   });
 
+  it("supports legacy generated flag expressions used by Nullgram", () => {
+    const source = `
+    public static class Message extends TLObject {
+        public boolean invert_media;
+    }
+    public static class TL_message extends Message {
+        public void readParams(InputSerializedData stream, boolean exception) {
+            flags = stream.readInt32(exception);
+            out = (flags & 2) != 0;
+            flags2 = stream.readInt32(exception);
+        }
+        public void serializeToStream(OutputSerializedData stream) {
+            flags = out ? (flags | 2) : (flags &~ 2);
+            stream.writeInt32(flags);
+            flags2 = offline ? (flags2 | 2) : (flags2 &~ 2);
+            stream.writeInt32(flags2);
+        }
+    }
+    `;
+    const patched = patchRecalledTlrpc(source);
+    expect(patched).toContain("recalled = hasFlag(flags, FLAG_12);");
+    expect(patched).toContain("flags = setFlag(flags, FLAG_12, recalled);");
+    expect(patched).toContain("recalledVisible = hasFlag(flags2, FLAG_30);");
+    expect(patched).toContain("flags2 = setFlag(flags2, FLAG_30, recalledVisible);");
+    expect(patchRecalledTlrpc(patched)).toBe(patched);
+  });
+
   it("dims recalled cells and draws a trash indicator", () => {
     const source = `
         private boolean drawInstantView;

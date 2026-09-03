@@ -243,9 +243,16 @@ export function patchGifVideoRawAnimation(initial: string): string {
       "dataArr[4] = crossgramDurationMs(info);",
     );
   if (!source.includes("#include <libavutil/pixdesc.h>")) {
+    // Recent VideoFrameReader sources include eval/display but no intmath;
+    // older AnimatedFileDrawable sources include intmath. Select one stable
+    // include that is present exactly once instead of matching every libavutil
+    // header in the file.
+    const pixdescAnchor = source.includes("#include <libavutil/eval.h>")
+      ? /(#include\s+<libavutil\/eval\.h>\s*\n)/
+      : /(#include\s+<libavutil\/intmath\.h>\s*\n)/;
     source = replaceRegexOnce(
       source,
-      /(#include\s+<libavutil\/intmath\.h>\s*\n)/,
+      pixdescAnchor,
       "$1#include <libavutil/pixdesc.h>\n",
       "#include <libavutil/pixdesc.h>",
       gifVideoFile,
@@ -317,7 +324,10 @@ static void crossgramPremultiplyBitmap(
     gifVideoFile,
     "premultiply APNG alpha before Android Canvas composites the bitmap",
   );
-  const legacyBitmapWriter = /static\s+(?:inline\s+)?void\s+writeFrameToBitmap\s*\(\s*JNIEnv\s*\*\s*env\s*,\s*VideoInfo\s*\*\s*info\s*,\s*jintArray\s+data\s*,\s*jobject\s+bitmap\s*\)/;
+  // Telegram's legacy writer gained an explicit Android bitmap stride
+  // parameter in newer releases. Keep accepting both the old four-argument
+  // declaration and the newer five-argument form.
+  const legacyBitmapWriter = /static\s+(?:inline\s+)?void\s+writeFrameToBitmap\s*\(\s*JNIEnv\s*\*\s*env\s*,\s*VideoInfo\s*\*\s*info\s*,\s*jintArray\s+data\s*,\s*jobject\s+bitmap(?:\s*,\s*jint\s+stride)?\s*\)/;
   const modernBitmapWriter = /static\s+(?:inline\s+)?void\s+writeFrameToBitmap\s*\([^)]*AVFrame\s*\*\s*frame[^)]*\)/;
   const premultiplyBitmapWriter = (pattern: RegExp, frame: string): boolean => {
     let found = false;
@@ -334,11 +344,15 @@ static void crossgramPremultiplyBitmap(
           if (!body.includes(unlock)) {
             throw new PatchError(gifVideoFile, "writeFrameToBitmap unlock anchor was not found");
           }
+          // The stride name differs between upstream revisions. Older
+          // fixtures/local forks expose bitmapStride, while recent Telegram
+          // releases pass it as the writer's `stride` argument.
+          const bitmapStride = body.includes("bitmapStride") ? "bitmapStride" : "stride";
           return body.replace(
             unlock,
             `    if (crossgramFrameNeedsPremultiplication(${frame})) {
         crossgramPremultiplyBitmap(
-                (uint8_t *) pixels, bitmapStride, bitmapWidth, bitmapHeight);
+                (uint8_t *) pixels, ${bitmapStride}, bitmapWidth, bitmapHeight);
     }
 
 ${unlock}`,

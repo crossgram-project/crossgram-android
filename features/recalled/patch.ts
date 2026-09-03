@@ -37,7 +37,7 @@ export function patchRecalledTlrpc(initial: string): string {
       if (!updated.includes("recalled = hasFlag(flags, FLAG_12);")) {
         updated = replaceRegexOnce(
           updated,
-          /(^\s*flags\s*=\s*stream\.readInt32\(exception\);\r?\n\s*out\s*=\s*hasFlag\(flags, FLAG_1\);)/m,
+          /(^\s*flags\s*=\s*stream\.readInt32\(exception\);\r?\n\s*out\s*=\s*(?:hasFlag\(flags,\s*FLAG_1\)|\(flags\s*&\s*2\)\s*!=\s*0);)/m,
           "$1\n            recalled = hasFlag(flags, FLAG_12);",
           "recalled = hasFlag(flags, FLAG_12);",
           tlrpcFile,
@@ -47,7 +47,7 @@ export function patchRecalledTlrpc(initial: string): string {
       if (!updated.includes("flags = setFlag(flags, FLAG_12, recalled);")) {
         updated = replaceRegexOnce(
           updated,
-          /(^\s*flags\s*=\s*setFlag\(flags, FLAG_1, out\);\r?\n)/m,
+          /(^\s*(?:flags\s*=\s*setFlag\(flags,\s*FLAG_1,\s*out\)|flags\s*=\s*out\s*\?\s*\(flags\s*\|\s*2\)\s*:\s*\(flags\s*&~\s*2\));\r?\n)/m,
           "$1            flags = setFlag(flags, FLAG_12, recalled);\n",
           "flags = setFlag(flags, FLAG_12, recalled);",
           tlrpcFile,
@@ -67,7 +67,7 @@ export function patchRecalledTlrpc(initial: string): string {
       if (!updated.includes("flags2 = setFlag(flags2, FLAG_30, recalledVisible);")) {
         updated = replaceRegexOnce(
           updated,
-          /(^\s*flags2\s*=\s*setFlag\(flags2, FLAG_1, offline\);)/m,
+          /(^\s*(?:flags2\s*=\s*setFlag\(flags2,\s*FLAG_1,\s*offline\)|flags2\s*=\s*offline\s*\?\s*\(flags2\s*\|\s*2\)\s*:\s*\(flags2\s*&~\s*2\));)/m,
           "$1\n            flags2 = setFlag(flags2, FLAG_30, recalledVisible);",
           "flags2 = setFlag(flags2, FLAG_30, recalledVisible);",
           tlrpcFile,
