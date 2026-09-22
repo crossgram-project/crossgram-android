@@ -19,6 +19,11 @@ SHA-1 checkpoint 和前 10 MiB MD5，再调用 `crossgram.prepareMediaUploadV2` 
 `InputFile` 发送流程，但不再发送任何 `upload.saveFilePart`；RPC 失败、超时或未命中时
 自动继续原生分片上传。加密聊天、流式转码、语音和圆形视频不会执行秒传查询。
 
+Telegram 没有「戳一戳」，修改版客户端把它加到围绕头像的菜单里：长按群消息头像打开的头像预览菜单
+会多出「戳一戳」，点一次戳一下，长按这一行原地展开 `1 次 / 5 次 / 10 次` 的连戳；无法显示预览时
+Telegram 走的小型头像菜单只加单次戳一戳。入口只在服务器回答「这个会话支持 poke」后出现，
+官方服务器上不会显示；RPC 与官方服务器兼容方式见 [`features/poke`](features/poke)。
+
 `features/server-e2e` 是默认关闭的测试 feature。只有显式运行
 `yarn e2e:source` 或 Android E2E workflow 时才会注入 debug Activity、测试签名放行和
 直接业务函数入口；常规 `patch:source` 与 release workflow 不会应用它。详细方法、命令与
