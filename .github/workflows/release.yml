@@ -150,7 +150,7 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           shopt -s nullglob
-          files=(release-assets/*.apk release-assets/*.txt release-assets/*.json)
+          files=(release-assets/*.apk release-assets/*.txt release-assets/crossgram-update.json)
           if (( ${#files[@]} == 0 )); then
             echo "No successful artifacts; skipping release."
             exit 0
