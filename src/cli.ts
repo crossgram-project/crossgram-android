@@ -11,6 +11,7 @@ import { applyFastUpload } from "../features/fast-upload/patch.js";
 import { applySendCancellation } from "../features/send-cancellation/patch.js";
 import { applyRecalled } from "../features/recalled/patch.js";
 import { applyPoke } from "../features/poke/patch.js";
+import { applyUpdater } from "../features/updater/patch.js";
 import { applyBrand, getBrand } from "./branding.js";
 import { prepareBuild, type BuildVariant } from "./build/prepare.js";
 import { emitGithubMatrices } from "./discover.js";
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
     const fastUploadFiles = await applyFastUpload(root, upstream);
     const recalledFiles = await applyRecalled(root, upstream);
     const pokeFiles = await applyPoke(root, upstream);
+    const updaterFiles = await applyUpdater(root, upstream);
     console.log(JSON.stringify({
       client: upstream.id,
       source: root,
@@ -52,6 +54,7 @@ async function main(): Promise<void> {
         ...fastUploadFiles,
         ...recalledFiles,
         ...pokeFiles,
+        ...updaterFiles,
       ],
     }, null, 2));
   } else if (command === "e2e") {
