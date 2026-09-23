@@ -422,7 +422,7 @@
                 String description = webPage == null ? null : webPage.description;
                 String compact = description == null ? "" : description.replaceAll("\\s+", "");
                 java.util.regex.Matcher link = url == null ? null : java.util.regex.Pattern.compile(
-                        "(?i)^https?://(?:www\\.)?t\\.me/bridgechat_[1-9][0-9]*/"
+                        "(?i)^https?://(?:www\\.)?t\\.me/(?:bridgebundle|bridgechat)_[1-9][0-9]*/"
                                 + "([1-9][0-9]*)/?(?:[?#].*)?$").matcher(url);
                 if (link == null || !link.matches()) {
                     android.util.Log.e("CrossgramE2E", "open_merged_forward_failed reason=invalid_url");

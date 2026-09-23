@@ -16,8 +16,10 @@ import java.util.regex.Pattern;
 
 /** Opens Crossgram's synthetic merged-forward chats and optional message anchors. */
 public final class CrossgramMergedForward {
+    // The relay names a transcript after its bundle ("bridgebundle_"); the
+    // earlier "bridgechat_" shape is still addressable for cached links.
     private static final Pattern LINK = Pattern.compile(
-            "^https?://(?:www\\.)?t\\.me/bridgechat_([1-9][0-9]*)"
+            "^https?://(?:www\\.)?t\\.me/(bridgebundle|bridgechat)_([1-9][0-9]*)"
                     + "(?:/([1-9][0-9]*))?/?(?:[?#].*)?$",
             Pattern.CASE_INSENSITIVE);
 
@@ -32,7 +34,7 @@ public final class CrossgramMergedForward {
             openChat(controller, target);
             return true;
         }
-        final String username = "bridgechat_" + target.chatId;
+        final String username = target.usernamePrefix + target.chatId;
         controller.getUserNameResolver().resolve(username, peerId -> {
             if (peerId == null || peerId >= 0 || -peerId != target.chatId) {
                 FileLog.e("crossgram_merged_forward_open_failed chat_id=" + target.chatId);
@@ -72,19 +74,22 @@ public final class CrossgramMergedForward {
         Matcher matcher = LINK.matcher(url);
         if (!matcher.matches()) return null;
         try {
-            long chatId = Long.parseLong(matcher.group(1));
-            int messageId = matcher.group(2) == null ? 0 : Integer.parseInt(matcher.group(2));
-            return chatId > 0 ? new LinkTarget(chatId, messageId) : null;
+            String prefix = matcher.group(1).toLowerCase(java.util.Locale.ROOT) + "_";
+            long chatId = Long.parseLong(matcher.group(2));
+            int messageId = matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3));
+            return chatId > 0 ? new LinkTarget(prefix, chatId, messageId) : null;
         } catch (NumberFormatException ignored) {
             return null;
         }
     }
 
     private static final class LinkTarget {
+        final String usernamePrefix;
         final long chatId;
         final int messageId;
 
-        LinkTarget(long chatId, int messageId) {
+        LinkTarget(String usernamePrefix, long chatId, int messageId) {
+            this.usernamePrefix = usernamePrefix;
             this.chatId = chatId;
             this.messageId = messageId;
         }

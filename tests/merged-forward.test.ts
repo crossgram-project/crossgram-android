@@ -40,19 +40,27 @@ describe("Android merged-forward link patch", () => {
     ), "utf8");
     const pattern = compiledLinkPattern(runtime);
 
-    expect(pattern.exec("https://t.me/bridgechat_123")?.slice(1)).toEqual(["123", undefined]);
-    expect(pattern.exec("https://t.me/bridgechat_123/456")?.slice(1)).toEqual(["123", "456"]);
-    expect(pattern.exec("https://www.t.me/bridgechat_123/456/?single")?.slice(1))
-      .toEqual(["123", "456"]);
-    expect(pattern.test("https://t.me/bridgechat_0/456")).toBe(false);
-    expect(pattern.test("https://t.me/bridgechat_123/0")).toBe(false);
-    expect(pattern.test("https://t.me/bridgechat_123/456/789")).toBe(false);
+    // The relay renamed the shape from "bridgechat_" to "bridgebundle_"; both
+    // are still addressable, and the matched prefix is what the resolver uses.
+    expect(pattern.exec("https://t.me/bridgebundle_123")?.slice(1))
+      .toEqual(["bridgebundle", "123", undefined]);
+    expect(pattern.exec("https://t.me/bridgebundle_123/456")?.slice(1))
+      .toEqual(["bridgebundle", "123", "456"]);
+    expect(pattern.exec("https://www.t.me/bridgebundle_123/456/?single")?.slice(1))
+      .toEqual(["bridgebundle", "123", "456"]);
+    expect(pattern.exec("https://t.me/bridgechat_123/456")?.slice(1))
+      .toEqual(["bridgechat", "123", "456"]);
+    expect(pattern.test("https://t.me/bridgebundle_0/456")).toBe(false);
+    expect(pattern.test("https://t.me/bridgebundle_123/0")).toBe(false);
+    expect(pattern.test("https://t.me/bridgebundle_123/456/789")).toBe(false);
+    expect(pattern.test("https://t.me/chatbundle_123")).toBe(false);
   });
 
   it("passes the deep-link message ID to ChatActivity", async () => {
     const runtime = await readFile(path.resolve(
       "features/merged-forward/files/java/org/telegram/messenger/crossgram_merged/CrossgramMergedForward.java",
     ), "utf8");
+    expect(runtime).toContain("target.usernamePrefix + target.chatId");
     expect(runtime).toContain('args.putLong("chat_id", target.chatId)');
     expect(runtime).toContain('args.putInt("message_id", target.messageId)');
     expect(runtime).toContain('" message_id=" + target.messageId');
