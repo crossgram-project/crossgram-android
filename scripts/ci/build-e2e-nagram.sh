@@ -44,7 +44,8 @@ export ALIAS_PASS="$SIGNING_PASSWORD"
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
 export CROSSGRAM_NATIVE_TARGETS=x86_64
 # The third_party scripts take the Gradle ABI names instead.
-export ABIS=x86_64
+source "$PATCHER_ROOT/scripts/ci/native-abi-list.sh"
+export ABIS="$(native_abi_list x86_64)"
 export COMPILE_NATIVE=1
 
 cd "$SOURCE_ROOT"

@@ -41,16 +41,11 @@ corepack yarn run patch:source --client "$CLIENT" --source "$SOURCE_ROOT"
 corepack yarn run prepare-build --client "$CLIENT" --source "$SOURCE_ROOT" --variant "$VARIANT"
 node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"
 
-case "$VARIANT" in
-  armAll) ABIS=(armeabi-v7a arm64-v8a) ;;
-  arm64) ABIS=(arm64-v8a) ;;
-  x86_64) ABIS=(x86_64) ;;
-  universal) ABIS=(armeabi-v7a arm64-v8a x86 x86_64) ;;
-  *) echo "Unknown variant: $VARIANT" >&2; exit 2 ;;
-esac
+source "$PATCHER_ROOT/scripts/ci/native-abi-list.sh"
+NATIVE_ABI_LIST=$(native_abi_list "$VARIANT")
 
 NATIVE_TARGETS=()
-for abi in "${ABIS[@]}"; do
+for abi in $NATIVE_ABI_LIST; do
   case "$abi" in
     armeabi-v7a) NATIVE_TARGETS+=(arm) ;;
     arm64-v8a) NATIVE_TARGETS+=(arm64) ;;
@@ -59,11 +54,11 @@ for abi in "${ABIS[@]}"; do
   esac
 done
 export CROSSGRAM_NATIVE_TARGETS="${NATIVE_TARGETS[*]}"
-# Nagram's TMessagesProj/jni/third_party scripts select their ABIs from this
-# variable, and they spell the ABIs the way Gradle does, not the short native
-# targets above.
+# Nagram's TMessagesProj/jni/third_party scripts select their ABIs from ABIS
+# and spell them the way Gradle does. A bash array cannot cross the process
+# boundary, so the list has to travel as a plain scalar.
 if [[ "$CLIENT" == "nagram" ]]; then
-  export ABIS="${ABIS[*]}"
+  export ABIS="$NATIVE_ABI_LIST"
 fi
 
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"

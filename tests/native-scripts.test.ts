@@ -1,10 +1,26 @@
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 const ciScript = new URL("../scripts/ci/build-upstream.sh", import.meta.url);
 const nativeToolsScript = new URL("../scripts/ci/install-native-tools.sh", import.meta.url);
 const releaseWorkflow = new URL("../.github/workflows/release.yml", import.meta.url);
+const abiHelper = new URL("../scripts/ci/native-abi-list.sh", import.meta.url);
+
+const exec = promisify(execFile);
+
+/** Git Bash and WSL need the POSIX spelling of a Windows path. */
+function posixPath(target: string): string {
+  return process.platform === "win32"
+    ? target.replace(/^([A-Za-z]):\\/, (_, drive: string) => "/" + drive.toLowerCase() + "/").replaceAll("\\", "/")
+    : target;
+}
+
 
 describe("build scripts", () => {
   it("writes portable artifact checksums", async () => {
@@ -86,11 +102,44 @@ describe("build scripts", () => {
       expect(script.indexOf("./run init libs ffmpeg")).toBeLessThan(script.indexOf("./run init libs boringssl"));
       expect(script).toMatch(/export ABIS=/);
     }
-    expect(ci).toMatch(/export ABIS="\$\{ABIS\[\*\]\}"/);
-    expect(e2e).toContain("export ABIS=x86_64");
+    // Bash cannot export an array, so the list has to cross the process
+    // boundary as a scalar that the native scripts inherit.
+    expect(ci).toContain('export ABIS="$NATIVE_ABI_LIST"');
+    expect(ci).toContain('NATIVE_ABI_LIST=$(native_abi_list "$VARIANT")');
+    expect(e2e).toContain('export ABIS="$(native_abi_list x86_64)"');
+    expect(ci).not.toMatch(/export ABIS="\$\{ABIS\[/);
     // dav1d is a Meson project and libvpx/FFmpeg need an x86 assembler.
     for (const tool of ["meson", "nasm", "pkg-config"]) {
       expect(e2eWorkflow).toContain(tool);
+    }
+  });
+
+  it("resolves every variant to an ABI list the native scripts can inherit", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "crossgram-abi-list-"));
+    try {
+      const harness = path.join(directory, "harness.sh");
+      await writeFile(
+        harness,
+        [
+          "set -euo pipefail",
+          'source "' + posixPath(fileURLToPath(abiHelper)) + '"',
+          'ABIS="$(native_abi_list "$1")"',
+          "export ABIS",
+          'bash -c \'printf "%s\\n" "$ABIS"\'',
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const abiFor = async (variant: string) =>
+        (await exec("bash", [posixPath(harness), variant])).stdout.trim();
+      expect(await abiFor("arm64")).toBe("arm64-v8a");
+      expect(await abiFor("x86_64")).toBe("x86_64");
+      expect(await abiFor("armAll")).toBe("armeabi-v7a arm64-v8a");
+      expect(await abiFor("universal")).toBe("armeabi-v7a arm64-v8a x86 x86_64");
+      await expect(abiFor("mips")).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
   });
 
