@@ -459,6 +459,12 @@ describe("Android server E2E source driver", () => {
     expect(script).toContain("frames_changed=true");
     expect(script).toContain("looped=true");
     expect(script).toContain("raw_animation_failed");
+    // One failing format must not hide the other, and the app's own FFmpeg log
+    // stays in the transcript of a failed check.
+    expect(script).toContain('run_animation gif /data/local/tmp/crossgram-two-frame.gif || status=1');
+    expect(script).toContain('run_animation apng /data/local/tmp/crossgram-two-frame.apng || status=1');
+    expect(script).toContain("dump_logs() {");
+    expect(script).toContain("adb logcat -d -t 800 >&2");
     expect(script).toContain('adb install -r -g "$APK"');
     expect(script).toContain("CrossgramE2E:V");
     expect(script).not.toContain("CrossgramE2E:I CrossgramE2E:E");

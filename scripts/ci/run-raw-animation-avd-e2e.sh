@@ -37,6 +37,7 @@ run_animation() {
     output=$(adb logcat -d -s CrossgramE2E:V '*:S')
     if grep -F "raw_animation_failed" <<<"$output" | grep -F "format=$format" >/dev/null; then
       printf '%s\n' "$output" >&2
+      dump_logs
       return 1
     fi
     if grep -F "raw_animation_decoded format=$format" <<<"$output" \
@@ -48,10 +49,20 @@ run_animation() {
     sleep 1
   done
   adb logcat -d -s CrossgramE2E:V '*:S' >&2
-  adb logcat -d -t 500 >&2
+  dump_logs
   echo "Timed out waiting for changing $format frames" >&2
   return 1
 }
 
-run_animation gif /data/local/tmp/crossgram-two-frame.gif
-run_animation apng /data/local/tmp/crossgram-two-frame.apng
+# The app's own FFmpeg diagnostics live under the messages tag, so keep the whole
+# buffer when an animation check fails instead of only the harness lines.
+dump_logs() {
+  adb logcat -d -t 800 >&2
+}
+
+# Both formats run even when the first one fails, so one failed check does not
+# hide the other's evidence.
+status=0
+run_animation gif /data/local/tmp/crossgram-two-frame.gif || status=1
+run_animation apng /data/local/tmp/crossgram-two-frame.apng || status=1
+exit $status

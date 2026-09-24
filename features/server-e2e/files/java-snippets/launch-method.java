@@ -257,6 +257,9 @@
                         .isGif(file);
                 boolean expected = "apng".equals(expectedFormat) ? apng
                         : "gif".equals(expectedFormat) && gif;
+                android.util.Log.i("CrossgramE2E", "raw_animation_input format=" + expectedFormat
+                        + " exists=" + (file != null && file.exists())
+                        + " size=" + (file == null ? -1 : file.length()));
                 org.telegram.ui.Components.AnimatedFileDrawable drawable = null;
                 // The drawable swallows the decoder's status, so log the raw
                 // decode loop first: a stall shows up here as result=0 or as a
