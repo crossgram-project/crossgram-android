@@ -143,6 +143,22 @@ describe("build scripts", () => {
     }
   });
 
+  it("runs the patcher suite before the APKs are built", async () => {
+    const [workflow, e2eWorkflow] = await Promise.all([
+      readFile(releaseWorkflow, "utf8"),
+      readFile(new URL("../.github/workflows/android-server-e2e.yml", import.meta.url), "utf8"),
+    ]);
+
+    // The suite compiles the injected helpers, so it has to run before the
+    // native build can hide a drifted anchor behind an hour of compiling.
+    expect(workflow).toContain("run: yarn check");
+    expect(workflow).toMatch(/needs:\s*\r?\n\s*- discover\r?\n\s*- test/);
+    expect(e2eWorkflow).toContain("run: yarn check");
+    expect(e2eWorkflow.indexOf("name: Run patcher tests")).toBeLessThan(
+      e2eWorkflow.indexOf("name: Patch and rebuild Nagram debug APK"),
+    );
+  });
+
   it("persists a bounded compiler cache for native builds", async () => {
     const workflow = await readFile(releaseWorkflow, "utf8");
 

@@ -53,6 +53,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - name: Install patcher dependencies
         run: corepack enable && yarn install --immutable
+      - name: Run patcher tests
+        run: yarn check
       - name: Patch and rebuild Nagram debug APK
         run: bash scripts/ci/build-e2e-nagram.sh "${{ inputs.nagram_ref || 'main' }}"
       - name: Enable KVM for the API 35 emulator

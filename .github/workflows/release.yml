@@ -47,8 +47,27 @@ jobs:
           CROSSGRAM_CLIENT: ${{ inputs.client || 'all' }}
         run: yarn discover --github-output "$GITHUB_OUTPUT"
 
+  test:
+    runs-on: ubuntu-latest
+    name: Patcher unit and harness tests
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: corepack enable && yarn install --immutable
+      # The suite compiles the injected helpers and drives the patch anchors, so
+      # a drifted upstream anchor fails here instead of after the native build.
+      - run: yarn check
+
   build:
-    needs: discover
+    needs:
+      - discover
+      - test
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
