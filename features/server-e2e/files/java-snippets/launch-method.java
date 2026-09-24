@@ -273,10 +273,18 @@
                                 Math.max(1, decodeMetaData[0]), Math.max(1, decodeMetaData[1]),
                                 android.graphics.Bitmap.Config.ARGB_8888);
                         for (int attempt = 0; attempt < 6; attempt++) {
+                            // Erasing first separates "the decoder repeated a frame"
+                            // from "the decoder produced one that never reached the
+                            // bitmap": an unwritten frame leaves the erase behind.
+                            decodeBitmap.eraseColor(0);
                             int result = decoder.getVideoFrame(decodeBitmap, false, 0, 0, true);
                             android.util.Log.i("CrossgramE2E", "raw_animation_frame format=" + expectedFormat
                                     + " attempt=" + attempt + " result=" + result
                                     + " static=" + decoder.isStaticVideoDetected()
+                                    + " time_ms=" + decodeMetaData[3]
+                                    + " duration_ms=" + decodeMetaData[4]
+                                    + " center=" + Integer.toHexString(decodeBitmap.getPixel(decodeMetaData[0] / 2, decodeMetaData[1] / 2))
+                                    + " corner=" + Integer.toHexString(decodeBitmap.getPixel(1, 1))
                                     + " checksum=" + crossgramE2eBitmapChecksum(decodeBitmap));
                         }
                         decoder.recycle();
