@@ -202,9 +202,12 @@
                         MediaDataController.getInstance(currentAccount).addRecentSticker(
                                 MediaDataController.TYPE_IMAGE, pack, document,
                                 (int) (System.currentTimeMillis() / 1000), false);
+                        // The argument list has to match one of the sendSticker
+                        // overloads of the pinned upstream; applyServerE2e checks it
+                        // against SendMessagesHelper before injecting this snippet.
                         SendMessagesHelper.getInstance(currentAccount).sendSticker(
                                 document, null, dialogId, null, null, null, null, null,
-                                true, 0, 0, false, pack, null, 0, 0, 0, null);
+                                true, 0, 0, false, pack, null, 0, 0, null);
                         android.util.Log.i("CrossgramE2E", "sticker_recent_seed_started document_id=" + document.id);
                     }));
             android.util.Log.i("CrossgramE2E", "function_called:getStickerSetForRecent set_id=" + setId);
@@ -229,7 +232,7 @@
                     TLRPC.Document document = recent.get(0);
                     SendMessagesHelper.getInstance(currentAccount).sendSticker(
                             document, null, dialogId, null, null, null, null, null,
-                            true, 0, 0, false, null, null, 0, 0, 0, null);
+                            true, 0, 0, false, null, null, 0, 0, null);
                     android.util.Log.i("CrossgramE2E", "sticker_recent_send_started document_id=" + document.id);
                     return;
                 }

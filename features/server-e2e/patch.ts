@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readUtf8, writeUtf8IfChanged } from "../../src/core/files.js";
-import { editDeclarationBody, replaceRegexOnce } from "../../src/core/text-edit.js";
+import { PatchError, editDeclarationBody, replaceRegexOnce } from "../../src/core/text-edit.js";
 
 const featureRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -230,6 +230,71 @@ $1return new Transfer(new CrossgramDirectHttp.Transfer(url));`,
   return source;
 }
 
+/** Split a Java parameter or argument list on the commas outside generics and calls. */
+function splitJavaList(list: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (const character of list) {
+    if (character === "<" || character === "(") depth++;
+    else if (character === ">" || character === ")") depth--;
+    if (character === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  if (current.trim() !== "") parts.push(current.trim());
+  return parts;
+}
+
+/** The declared type of a Java parameter, e.g. "TLRPC.Document document" -> "TLRPC.Document". */
+function parameterType(parameter: string): string {
+  return parameter.split(/\s+/).slice(0, -1).join(" ");
+}
+
+/** Every sendSticker overload the tree declares, as its list of parameter types. */
+function sendStickerOverloads(helperSource: string): string[][] {
+  return [...helperSource.matchAll(/public\s+void\s+sendSticker\(([^)]*)\)\s*\{/g)].map((match) =>
+    splitJavaList(match[1] ?? "").map(parameterType),
+  );
+}
+
+/**
+ * The snippet drives SendMessagesHelper.sendSticker by position, and upstream adds
+ * and removes parameters between releases without touching this file. Compare the
+ * injected call against the overloads the tree actually declares, so a drifted call
+ * fails the patch instead of the APK build that runs after the native one.
+ */
+export function assertSendStickerCallFits(helperSource: string, snippet: string, file: string): void {
+  const overloads = sendStickerOverloads(helperSource);
+  if (overloads.length === 0) {
+    throw new PatchError(file, "SendMessagesHelper declares no sendSticker overload");
+  }
+  const calls = [...snippet.matchAll(/sendSticker\(([\s\S]*?)\);/g)].map((match) => splitJavaList(match[1] ?? ""));
+  if (calls.length === 0) {
+    throw new PatchError(file, "the E2E snippet no longer sends stickers");
+  }
+  for (const call of calls) {
+    const usable = overloads.some((types) =>
+      types.length === call.length
+      && types[0] === "TLRPC.Document"
+      && types[1] === "String"
+      && types[2] === "long",
+    );
+    if (!usable) {
+      const arities = overloads.map((types) => types.length).join(", ");
+      throw new PatchError(
+        file,
+        "the E2E snippet calls sendSticker with " + call.length
+          + " arguments, but the tree declares only (" + arities
+          + ") and none of those starts with (TLRPC.Document, String, long)",
+      );
+    }
+  }
+}
+
 export async function applyServerE2e(root: string): Promise<PatchResult> {
   const changedFiles: string[] = [];
   await installFile(
@@ -250,11 +315,17 @@ export async function applyServerE2e(root: string): Promise<PatchResult> {
     changedFiles,
     async (source) => patchLoginE2eSource(source, "LoginActivity.java", await template("java-snippets/login-methods.java")),
   );
+  const launchSnippet = await template("java-snippets/launch-method.java");
+  assertSendStickerCallFits(
+    await readUtf8(path.join(root, "TMessagesProj/src/main/java/org/telegram/messenger/SendMessagesHelper.java")),
+    launchSnippet,
+    "LaunchActivity.java",
+  );
   await editFile(
     root,
     "TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java",
     changedFiles,
-      async (source) => patchLaunchE2eSource(source, "LaunchActivity.java", await template("java-snippets/launch-method.java")),
+    async (source) => patchLaunchE2eSource(source, "LaunchActivity.java", launchSnippet),
   );
   await editFile(
     root,

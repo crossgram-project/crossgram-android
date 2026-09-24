@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  assertSendStickerCallFits,
   patchLaunchE2eSource,
   patchDirectDownloadE2eSource,
   patchLoginE2eSource,
@@ -12,7 +13,31 @@ import {
 
 const featureRoot = path.resolve("features/server-e2e/files");
 
+/** The sendSticker overload Nagram ships, trimmed to the parts the check reads. */
+const sendStickerOverloads = `public class SendMessagesHelper {
+    public void sendSticker(TLRPC.Document document, String query, long peer, MessageObject replyToMsg, MessageObject replyToTopMsg, TL_stories.StoryItem storyItem, ChatActivity.ReplyQuote quote, MessageObject.SendAnimationData sendAnimationData, boolean notify, int scheduleDate, int scheduleRepeatPeriod, boolean updateStickersOrder, Object parentObject, SendMessageChatArguments sendMessageChatArguments, long stars, long monoForumPeerId, MessageSuggestionParams suggestionParams) {
+    }
+
+    public void sendSticker(TLRPC.Document document, String query, long peer, CharSequence caption, VideoEditedInfo videoEditedInfo, MessageObject replyToMsg, MessageObject replyToTopMsg, TL_stories.StoryItem storyItem, ChatActivity.ReplyQuote quote, MessageObject.SendAnimationData sendAnimationData, boolean notify, int scheduleDate, int scheduleRepeatPeriod, boolean updateStickersOrder, Object parentObject, SendMessageChatArguments sendMessageChatArguments, long stars, long monoForumPeerId, MessageSuggestionParams suggestionParams) {
+    }
+}`;
+
 describe("Android server E2E source driver", () => {
+  it("refuses to inject a sendSticker call the tree cannot compile", async () => {
+    const snippet = await readFile(path.join(featureRoot, "java-snippets/launch-method.java"), "utf8");
+    // The snippet's 17-argument call matches the shortest overload above.
+    expect(() => assertSendStickerCallFits(sendStickerOverloads, snippet, "LaunchActivity.java"))
+      .not.toThrow();
+    // A reshaped upstream - here one parameter richer - has to be reported
+    // before Gradle reaches the Java compile.
+    const drifted = sendStickerOverloads.replace(
+      "boolean updateStickersOrder, Object parentObject",
+      "boolean updateStickersOrder, Object parentObject, boolean invertMedia",
+    );
+    expect(() => assertSendStickerCallFits(drifted, snippet, "LaunchActivity.java"))
+      .toThrow(/17 arguments/);
+  });
+
   it("drives the phone and code pages directly and remains idempotent", async () => {
     const methods = await readFile(path.join(featureRoot, "java-snippets/login-methods.java"), "utf8");
     const source = `public class LoginActivity {
