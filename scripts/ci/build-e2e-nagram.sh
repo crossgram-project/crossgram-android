@@ -43,10 +43,13 @@ export ALIAS_PASS="$SIGNING_PASSWORD"
 
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
 export CROSSGRAM_NATIVE_TARGETS=x86_64
+# The third_party scripts take the Gradle ABI names instead.
+export ABIS=x86_64
 export COMPILE_NATIVE=1
 
 cd "$SOURCE_ROOT"
 ./run init libs libvpx
+./run init libs dav1d
 ./run init libs ffmpeg
 ./run init libs boringssl
 ./gradlew :TMessagesProj:assembleDebug --build-cache --no-configuration-cache --max-workers=2

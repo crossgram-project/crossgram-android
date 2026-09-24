@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import path from "node:path";
 
 import { readUtf8, writeUtf8IfChanged } from "../core/files.js";
@@ -19,6 +20,10 @@ const nativeTargetByAbi: Record<string, string> = {
   x86: "x86",
   x86_64: "x86_64",
 };
+
+async function exists(target: string): Promise<boolean> {
+  return access(target).then(() => true, () => false);
+}
 
 function gradleOverride(
   abis: readonly string[],
@@ -207,11 +212,19 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     }
     if (await writeUtf8IfChanged(jniFile, jniUpdated)) changed.push(jniRelative);
 
-    for (const relative of [
-      "TMessagesProj/jni/build_boringssl.sh",
+    // Upstream moved libvpx, dav1d and FFmpeg into TMessagesProj/jni/third_party,
+    // where the ABI list comes from the ABIS environment variable, so only the
+    // remaining script needs its target list rewritten; build-upstream.sh
+    // exports ABIS for the new layout. The _clang.sh scripts stay supported for
+    // the older tags a release ref can still point at.
+    const nativeScripts = ["TMessagesProj/jni/build_boringssl.sh"];
+    for (const legacy of [
       "TMessagesProj/jni/build_libvpx_clang.sh",
       "TMessagesProj/jni/build_ffmpeg_clang.sh",
     ]) {
+      if (await exists(path.join(root, legacy))) nativeScripts.push(legacy);
+    }
+    for (const relative of nativeScripts) {
       const file = path.join(root, relative);
       const source = await readUtf8(file);
       let updated = source;
@@ -249,23 +262,27 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
       if (await writeUtf8IfChanged(file, updated)) changed.push(relative);
     }
 
+    // The same move replaced patch_ffmpeg.sh with build_ffmpeg.sh, which merges
+    // the internal headers into the package by itself.
     const headerRelative = "TMessagesProj/jni/patch_ffmpeg.sh";
     const headerFile = path.join(root, headerRelative);
-    const headerSource = await readUtf8(headerFile);
-    let headerUpdated = headerSource;
-    const headerMarker = "# CROSSGRAM x86 FFmpeg internal headers enabled";
-    if (!headerUpdated.includes(headerMarker)) {
-      const commented = /^#cp (ffmpeg\/[^\r\n]+ ffmpeg\/build\/(?:x86|x86_64)\/include\/[^\r\n]+)$/gm;
-      const matches = [...headerUpdated.matchAll(commented)];
-      const hasIsomCopies = ["x86", "x86_64"].every((abi) =>
-        matches.some((match) => match[1]?.endsWith(`ffmpeg/build/${abi}/include/libavformat/isom.h`)),
-      );
-      if (!hasIsomCopies) {
-        throw new PatchError(headerRelative, "could not find disabled x86 FFmpeg isom.h copies");
+    if (await exists(headerFile)) {
+      const headerSource = await readUtf8(headerFile);
+      let headerUpdated = headerSource;
+      const headerMarker = "# CROSSGRAM x86 FFmpeg internal headers enabled";
+      if (!headerUpdated.includes(headerMarker)) {
+        const commented = /^#cp (ffmpeg\/[^\r\n]+ ffmpeg\/build\/(?:x86|x86_64)\/include\/[^\r\n]+)$/gm;
+        const matches = [...headerUpdated.matchAll(commented)];
+        const hasIsomCopies = ["x86", "x86_64"].every((abi) =>
+          matches.some((match) => match[1]?.endsWith(`ffmpeg/build/${abi}/include/libavformat/isom.h`)),
+        );
+        if (!hasIsomCopies) {
+          throw new PatchError(headerRelative, "could not find disabled x86 FFmpeg isom.h copies");
+        }
+        headerUpdated = `${headerUpdated.replace(commented, "cp $1").trimEnd()}\n\n${headerMarker}\n`;
       }
-      headerUpdated = `${headerUpdated.replace(commented, "cp $1").trimEnd()}\n\n${headerMarker}\n`;
+      if (await writeUtf8IfChanged(headerFile, headerUpdated)) changed.push(headerRelative);
     }
-    if (await writeUtf8IfChanged(headerFile, headerUpdated)) changed.push(headerRelative);
   }
   return changed;
 }

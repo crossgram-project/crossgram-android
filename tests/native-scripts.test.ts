@@ -61,6 +61,31 @@ describe("build scripts", () => {
     expect(ci).not.toContain("sudo apt-get");
   });
 
+  it("gives Nagram the native dependency layout and its ABI list", async () => {
+    const [ci, e2e, e2eWorkflow] = await Promise.all([
+      readFile(ciScript, "utf8"),
+      readFile(new URL("../scripts/ci/build-e2e-nagram.sh", import.meta.url), "utf8"),
+      readFile(new URL("../.github/workflows/android-server-e2e.yml", import.meta.url), "utf8"),
+    ]);
+
+    // Upstream builds libvpx, dav1d and FFmpeg from TMessagesProj/jni/third_party
+    // and selects the ABIs through ABIS; the release and the E2E APK both have
+    // to run dav1d before FFmpeg packages the shared include tree.
+    for (const script of [ci, e2e]) {
+      expect(script).toContain("./run init libs libvpx");
+      expect(script.indexOf("./run init libs libvpx")).toBeLessThan(script.indexOf("./run init libs dav1d"));
+      expect(script.indexOf("./run init libs dav1d")).toBeLessThan(script.indexOf("./run init libs ffmpeg"));
+      expect(script.indexOf("./run init libs ffmpeg")).toBeLessThan(script.indexOf("./run init libs boringssl"));
+      expect(script).toMatch(/export ABIS=/);
+    }
+    expect(ci).toMatch(/export ABIS="\$\{ABIS\[\*\]\}"/);
+    expect(e2e).toContain("export ABIS=x86_64");
+    // dav1d is a Meson project and libvpx/FFmpeg need an x86 assembler.
+    for (const tool of ["meson", "nasm", "pkg-config"]) {
+      expect(e2eWorkflow).toContain(tool);
+    }
+  });
+
   it("persists a bounded compiler cache for native builds", async () => {
     const workflow = await readFile(releaseWorkflow, "utf8");
 

@@ -13,8 +13,13 @@ const animatedEmojiFile = "TMessagesProj/src/main/java/org/telegram/ui/Component
 const gifVideoFile = "TMessagesProj/jni/gifvideo.cpp";
 const snifferRelative = "org/telegram/messenger/crossgram_animation/CrossgramRawAnimationSniffer.java";
 const ffmpegScripts = [
+  // Every shape that builds FFmpeg from source: the Telegram forks patch their
+  // own copy, while Nagram moved its list into jni/third_party and Forkgram and
+  // Mercurygram build through jni/prebuild.
   "TMessagesProj/jni/build_ffmpeg_clang.sh",
   "TMessagesProj/jni/ffmpeg/build_ffmpeg/build_ffmpeg.sh",
+  "TMessagesProj/jni/third_party/build_ffmpeg.sh",
+  "TMessagesProj/jni/prebuild/build_ffmpeg.sh",
 ] as const;
 
 export function patchMessageObjectRawAnimation(initial: string): string {
@@ -202,28 +207,65 @@ export function patchAnimatedEmojiRawAnimation(initial: string): string {
   return source;
 }
 
+/**
+ * Rewrite the single line that carries an FFmpeg option, keeping the shape of
+ * the list around it. Upstream ships that list both as one backslash-continued
+ * command and as one entry per line, and a trailing backslash in the array form
+ * would glue the next option onto the inserted one.
+ */
+function rewriteConfigureLine(
+  source: string,
+  anchor: RegExp,
+  rewrite: (line: string) => string,
+  file: string,
+  label: string,
+): string {
+  const flags = anchor.flags.includes("g") ? anchor.flags : anchor.flags + "g";
+  const matches = [...source.matchAll(new RegExp(anchor.source, flags))];
+  if (matches.length !== 1) {
+    throw new PatchError(file, label + ": expected one semantic match, found " + matches.length);
+  }
+  return source.replace(
+    new RegExp(anchor.source, anchor.flags.replace("g", "")),
+    (line: string) => rewrite(line),
+  );
+}
+
+/** One more option on its own line, following the anchor line style. */
+function appendConfigureLine(match: string, option: string): string {
+  const indent = /^[ \t]*/.exec(match)?.[0] ?? "";
+  const continuation = /\\[ \t]*$/.test(match) ? " \\" : "";
+  return match + "\n" + indent + option + continuation;
+}
+
 export function patchFfmpegRawAnimation(initial: string, file: string): string {
-  let source = initial.replace("--disable-zlib \\", "--enable-zlib \\");
-  source = replaceRegexOnce(
-    source,
-    /(^[ \t]*--enable-decoder=gif\s*\\[ \t]*$)/m,
-    `$1
-\t--enable-decoder=apng \\`,
-    "--enable-decoder=apng",
-    file,
-    "enable the APNG codec",
-  );
-  source = replaceRegexOnce(
-    source,
-    /(^[ \t]*--enable-demuxer=gif\s*\\[ \t]*$)/m,
-    `$1
-\t--enable-demuxer=apng \\`,
-    "--enable-demuxer=apng",
-    file,
-    "enable the APNG container",
-  );
+  let source = initial;
   if (!source.includes("--enable-zlib")) {
-    throw new Error(`${file}: FFmpeg zlib configuration anchor was not found`);
+    source = rewriteConfigureLine(
+      source,
+      /^[ \t]*--disable-zlib[ \t]*(?:\\[ \t]*)?$/m,
+      (line) => line.replace("--disable-zlib", "--enable-zlib"),
+      file,
+      "enable zlib for the APNG decoder",
+    );
+  }
+  const apngFlags: readonly (readonly [string, string])[] = [
+    ["--enable-decoder=apng", "enable the APNG codec"],
+    ["--enable-demuxer=apng", "enable the APNG container"],
+  ];
+  for (const [flag, label] of apngFlags) {
+    if (source.includes(flag)) continue;
+    const kind = flag.replace("--enable-", "").split("=")[0]!;
+    source = rewriteConfigureLine(
+      source,
+      new RegExp("^([ \\t]*)--enable-" + kind + "=gif[ \\t]*(?:\\\\[ \\t]*)?$", "m"),
+      (line) => appendConfigureLine(line, flag),
+      file,
+      label,
+    );
+  }
+  if (!source.includes("--enable-zlib")) {
+    throw new Error(file + ": FFmpeg zlib configuration anchor was not found");
   }
   return source;
 }

@@ -59,6 +59,12 @@ for abi in "${ABIS[@]}"; do
   esac
 done
 export CROSSGRAM_NATIVE_TARGETS="${NATIVE_TARGETS[*]}"
+# Nagram's TMessagesProj/jni/third_party scripts select their ABIs from this
+# variable, and they spell the ABIs the way Gradle does, not the short native
+# targets above.
+if [[ "$CLIENT" == "nagram" ]]; then
+  export ABIS="${ABIS[*]}"
+fi
 
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
 if [[ -n "$NATIVE_DEPS_NDK_VERSION" ]]; then
@@ -115,7 +121,10 @@ esac
 
 if [[ "$CLIENT" == "nagram" ]]; then
   cd "$SOURCE_ROOT"
+  # libvpx, dav1d and FFmpeg in this order: FFmpeg links both codec libraries
+  # and then packages the shared include tree the JNI build compiles against.
   ./run init libs libvpx
+  ./run init libs dav1d
   ./run init libs ffmpeg
   ./run init libs boringssl
 fi

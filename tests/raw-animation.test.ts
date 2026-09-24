@@ -114,6 +114,19 @@ const ffmpegFixture = `./configure \\
   --enable-hwaccels \\
 `;
 
+// The current Nagram/Mercurygram/Forkgram FFmpeg scripts keep one option per
+// line instead of continuing a single command.
+const ffmpegArrayFixture = [
+  "    local -a configure_args=(",
+  "        --disable-zlib",
+  "        --enable-decoder=gif",
+  "        --enable-decoder=alac",
+  "        --enable-demuxer=gif",
+  "        --enable-demuxer=ogg",
+  "    )",
+  '',
+].join("\n");
+
 const gifVideoFixture = `
 #include <libavutil/intmath.h>
 static inline void writeFrameToBitmap(JNIEnv *env, VideoInfo *info, jintArray data, jobject bitmap) {
@@ -243,6 +256,23 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patchFfmpegRawAnimation(patched, "build_ffmpeg.sh")).toBe(patched);
   });
 
+  it("keeps the one-entry-per-line FFmpeg option list intact", () => {
+    const patched = patchFfmpegRawAnimation(ffmpegArrayFixture, "build_ffmpeg.sh");
+    expect(patched).toContain("        --enable-zlib\n");
+    expect(patched).toContain(
+      "        --enable-decoder=gif\n        --enable-decoder=apng\n        --enable-decoder=alac\n",
+    );
+    expect(patched).toContain(
+      "        --enable-demuxer=gif\n        --enable-demuxer=apng\n        --enable-demuxer=ogg\n",
+    );
+    // A continuation there would glue the next option onto the inserted one.
+    expect(patched).not.toContain("apng \\");
+    expect(patchFfmpegRawAnimation(patched, "build_ffmpeg.sh")).toBe(patched);
+    // The backslash-continued shape keeps its own continuation.
+    expect(patchFfmpegRawAnimation(ffmpegFixture, "build_ffmpeg.sh"))
+      .toContain("--enable-decoder=apng \\");
+  });
+
   it("renders FFmpeg GIF/APNG frames and guards APNG's unknown duration", () => {
     const patched = patchGifVideoRawAnimation(gifVideoFixture);
     expect(patched).toContain("info->fmt_ctx->duration == AV_NOPTS_VALUE");
@@ -311,6 +341,12 @@ describe("Android raw GIF/APNG patch", () => {
       const ffmpeg = path.join(root, "TMessagesProj/jni");
       await mkdir(ffmpeg, { recursive: true });
       await writeFile(path.join(ffmpeg, "build_ffmpeg_clang.sh"), ffmpegFixture, "utf8");
+      const thirdParty = path.join(ffmpeg, "third_party");
+      await mkdir(thirdParty, { recursive: true });
+      await writeFile(path.join(thirdParty, "build_ffmpeg.sh"), ffmpegArrayFixture, "utf8");
+      const prebuild = path.join(ffmpeg, "prebuild");
+      await mkdir(prebuild, { recursive: true });
+      await writeFile(path.join(prebuild, "build_ffmpeg.sh"), ffmpegArrayFixture, "utf8");
       await writeFile(path.join(ffmpeg, "gifvideo.cpp"), gifVideoFixture, "utf8");
 
       const changed = await applyRawAnimation(root, getUpstream("nagram"));
@@ -320,6 +356,10 @@ describe("Android raw GIF/APNG patch", () => {
       expect(changed).toContain("TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java");
       expect(await readFile(path.join(ffmpeg, "build_ffmpeg_clang.sh"), "utf8"))
         .toContain("--enable-demuxer=apng");
+      expect(await readFile(path.join(thirdParty, "build_ffmpeg.sh"), "utf8"))
+        .toContain("        --enable-decoder=apng\n");
+      expect(await readFile(path.join(prebuild, "build_ffmpeg.sh"), "utf8"))
+        .toContain("        --enable-demuxer=apng\n");
       expect(await applyRawAnimation(root, getUpstream("nagram"))).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });

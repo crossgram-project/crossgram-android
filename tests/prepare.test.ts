@@ -155,6 +155,47 @@ describe("prepareBuild", () => {
     expect(await prepareBuild(root, getUpstream("nagram"), "x86_64")).toEqual([]);
   });
 
+  it("leaves Nagram's moved native scripts to the ABIS environment variable", async () => {
+    const relative = "TMessagesProj/build.gradle";
+    const root = await fixture(
+      relative,
+      "plugins { id 'com.android.application' }\nandroid { externalNativeBuild { cmake {} } }\n",
+    );
+    // libvpx, dav1d and FFmpeg now read their ABI list from the environment;
+    // only BoringSSL still carries one in the script.
+    const abiDriven = 'TARGET_ABIS="\${*:-\$ABIS}"\n';
+    const files: Record<string, string> = {
+      "TMessagesProj/jni/build_boringssl.sh": "build arm64 arm\n",
+      "TMessagesProj/jni/third_party/build_libvpx.sh": abiDriven,
+      "TMessagesProj/jni/third_party/build_ffmpeg.sh": abiDriven,
+      "TMessagesProj/jni/jni.c": [
+        "jint JNI_OnLoad(JavaVM *vm, void *reserved) {",
+        "    JNIEnv *env = 0;",
+        "    if (verifySign(env) != JNI_OK) {",
+        "        return JNI_ERR;",
+        "    }",
+        "    return JNI_VERSION_1_6;",
+        "}",
+        "",
+      ].join("\n"),
+    };
+    for (const [nativeRelative, content] of Object.entries(files)) {
+      const file = path.join(root, nativeRelative);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, content, "utf8");
+    }
+
+    const changed = await prepareBuild(root, getUpstream("nagram"), "arm64");
+    expect(changed).toContain("TMessagesProj/jni/build_boringssl.sh");
+    expect(await readFile(path.join(root, "TMessagesProj/jni/build_boringssl.sh"), "utf8"))
+      .toContain("build \${CROSSGRAM_NATIVE_TARGETS:-arm64 arm}");
+    expect(await readFile(path.join(root, "TMessagesProj/jni/third_party/build_libvpx.sh"), "utf8"))
+      .toBe(abiDriven);
+    expect(await readFile(path.join(root, "TMessagesProj/jni/third_party/build_ffmpeg.sh"), "utf8"))
+      .toBe(abiDriven);
+    expect(await prepareBuild(root, getUpstream("nagram"), "arm64")).toEqual([]);
+  });
+
   it("limits both Mercurygram modules without rewriting its Gradle wrapper", async () => {
     const root = await fixture(
       "TMessagesProj/build.gradle",
