@@ -99,6 +99,10 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("addRecentSticker(");
     expect(patched).toContain("getRecentStickers(MediaDataController.TYPE_IMAGE)");
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendSticker(");
+    // The animation command logs the decoder itself: when the drawable stops
+    // advancing frames, the raw result and checksum per call are the evidence.
+    expect(patched).toContain("AnimatedFileNative.createDecoderFrom(");
+    expect(patched).toContain('"raw_animation_frame format="');
     expect(patched).toContain("SendMessagesHelper.getInstance(currentAccount).sendMessage");
     expect(patched).toContain("searchMessagesInChat");
     expect(patched).toContain("markDialogAsRead");

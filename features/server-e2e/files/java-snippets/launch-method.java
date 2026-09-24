@@ -258,6 +258,33 @@
                 boolean expected = "apng".equals(expectedFormat) ? apng
                         : "gif".equals(expectedFormat) && gif;
                 org.telegram.ui.Components.AnimatedFileDrawable drawable = null;
+                // The drawable swallows the decoder's status, so log the raw
+                // decode loop first: a stall shows up here as result=0 or as a
+                // repeated checksum instead of only in the final assertion.
+                try {
+                    int[] decodeMetaData = new int[8];
+                    org.telegram.ui.Components.AnimatedFileNative decoder =
+                            org.telegram.ui.Components.AnimatedFileNative.createDecoderFrom(
+                                    file.getAbsolutePath(), decodeMetaData, currentAccount, 0, null, false);
+                    if (decoder == null) {
+                        android.util.Log.e("CrossgramE2E", "raw_animation_decoder_missing format=" + expectedFormat);
+                    } else {
+                        android.graphics.Bitmap decodeBitmap = android.graphics.Bitmap.createBitmap(
+                                Math.max(1, decodeMetaData[0]), Math.max(1, decodeMetaData[1]),
+                                android.graphics.Bitmap.Config.ARGB_8888);
+                        for (int attempt = 0; attempt < 6; attempt++) {
+                            int result = decoder.getVideoFrame(decodeBitmap, false, 0, 0, true);
+                            android.util.Log.i("CrossgramE2E", "raw_animation_frame format=" + expectedFormat
+                                    + " attempt=" + attempt + " result=" + result
+                                    + " static=" + decoder.isStaticVideoDetected()
+                                    + " checksum=" + crossgramE2eBitmapChecksum(decodeBitmap));
+                        }
+                        decoder.recycle();
+                    }
+                } catch (Throwable e) {
+                    android.util.Log.e("CrossgramE2E", "raw_animation_decoder_failed format="
+                            + expectedFormat + " error=" + e);
+                }
                 try {
                     drawable = new org.telegram.ui.Components.AnimatedFileDrawable(
                             file, true, 0, 0, null, null, null, 0, currentAccount, false, null);
