@@ -546,7 +546,9 @@ export async function applyRawAnimation(root: string, _upstream: Upstream): Prom
   const snifferTarget = path.join(root, "TMessagesProj/src/main/java", snifferRelative);
   const snifferSource = await readUtf8(path.join(featureRoot, "files/java", snifferRelative));
   if (await writeUtf8IfChanged(snifferTarget, snifferSource)) {
-    changedFiles.push(path.relative(root, snifferTarget));
+    // Reported relative to the source root with forward slashes, so the list
+    // reads the same on every host.
+    changedFiles.push("TMessagesProj/src/main/java/" + snifferRelative);
   }
 
   const messageTarget = path.join(root, messageObjectFile);

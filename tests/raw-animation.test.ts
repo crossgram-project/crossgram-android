@@ -357,7 +357,7 @@ describe("Android raw GIF/APNG patch", () => {
 
       const changed = await applyRawAnimation(root, getUpstream("nagram"));
       expect(changed).toContain(
-        "TMessagesProj\\src\\main\\java\\org\\telegram\\messenger\\crossgram_animation\\CrossgramRawAnimationSniffer.java",
+        "TMessagesProj/src/main/java/org/telegram/messenger/crossgram_animation/CrossgramRawAnimationSniffer.java",
       );
       expect(changed).toContain("TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java");
       expect(await readFile(path.join(ffmpeg, "build_ffmpeg_clang.sh"), "utf8"))
