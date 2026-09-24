@@ -22,7 +22,7 @@ case "$CLIENT" in
       TMessagesProj/jni/third_party/libvpx \
       TMessagesProj/jni/third_party/ffmpeg \
       TMessagesProj/jni/third_party/dav1d \
-      TMessagesProj/jni/boringssl \
+      TMessagesProj/jni/third_party/boringssl \
       TMessagesProj/jni/td \
       TMessagesProj/jni/whisper
     ;;

@@ -88,6 +88,13 @@ jobs:
           java-version: 17
       - name: Install native tools
         run: bash scripts/ci/install-native-tools.sh
+      - name: Install Rust Android targets
+        # Forkgram builds its tlottie archives from Rust sources and refuses to
+        # configure until all four Android targets are installed.
+        if: matrix.id == 'forkgram'
+        run: >-
+          rustup target add
+          aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
       - name: Restore C and C++ compiler cache
         uses: actions/cache@v6
         with:

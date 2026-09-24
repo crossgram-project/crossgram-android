@@ -36,7 +36,11 @@ describe("build scripts", () => {
     expect(source).toContain("TMessagesProj/jni/third_party/libvpx");
     expect(source).toContain("TMessagesProj/jni/third_party/ffmpeg");
     expect(source).toContain("TMessagesProj/jni/third_party/dav1d");
-    expect(source).not.toMatch(/^\s+TMessagesProj\/jni\/(?:libvpx|ffmpeg|dav1d) \\/m);
+    // Every listed submodule has to live where the fork actually keeps it:
+    // upstream moved the native ones under TMessagesProj/jni/third_party.
+    expect(source).not.toMatch(
+      /^\s+TMessagesProj\/jni\/(?!third_party\/)(?:libvpx|ffmpeg|dav1d|boringssl|openh264|libyuv|tlottie) \\/m,
+    );
     expect(source).toContain('node scripts/ci/api-identity.mjs "$CLIENT" "$SOURCE_ROOT"');
     expect(source).toContain('EXTRA_GRADLE_ARGS+=("-PMG_BUILD_TAG=$VERSION")');
     expect(source).toContain('EXTRA_GRADLE_ARGS+=("--no-parallel")');
@@ -54,6 +58,10 @@ describe("build scripts", () => {
     ]);
 
     expect(workflow).toContain("bash scripts/ci/install-native-tools.sh");
+    // Forkgram compiles tlottie with Cargo and needs every Android target.
+    expect(workflow).toContain("if: matrix.id == 'forkgram'");
+    expect(workflow).toContain("rustup target add");
+    expect(workflow).toContain("aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android");
     expect(nativeTools).toContain("Acquire::Retries=3");
     expect(nativeTools).toContain('timeout --signal=TERM --kill-after=30s "$limit"');
     expect(nativeTools).toContain("run_apt 5m update");
