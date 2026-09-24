@@ -67,7 +67,8 @@ describe("Android poke helper e2e", () => {
     expect(report).toContain(
       `burst-request=int:${SEND_POKE_CONSTRUCTOR},peer:dialog-42,user:user-7,int:5;`,
     );
-    expect(report).toContain(`options=[${POKE_LABEL}];`);
+    // The row the patched call site chains onto the returned menu is kept.
+    expect(report).toContain(`options=[${POKE_LABEL}, own-row];`);
     // The rejected account keeps the row hidden even after another menu is built.
     expect(report).toContain("rows-rejected=[];");
   }, 120_000);

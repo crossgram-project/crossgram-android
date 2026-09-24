@@ -48,9 +48,15 @@ public class Harness {
         menu.getChildAt(2).performClick();
         report.append("burst-request=").append(ConnectionsManager.sent.get(2).stream.joined()).append(';');
 
-        // The fallback ItemOptions menu offers the single poke as well.
-        final ItemOptions options = new ItemOptions();
-        CrossgramPoke.appendOptions(options, user);
+        // The fallback ItemOptions menu offers the single poke as well. Upstream
+        // builds that menu as one chain off the instance the poke row was added
+        // to, so the helper has to hand the same instance back.
+        final ItemOptions options = ItemOptions.makeOptions();
+        CrossgramPoke.appendOptions(options, user)
+                .add(R.drawable.msg_mention, "own-row", () -> {
+                })
+                .setDrawScrim(false)
+                .show();
         report.append("options=").append(options.added).append(';');
 
         // An account the relay rejected never shows the entry again.

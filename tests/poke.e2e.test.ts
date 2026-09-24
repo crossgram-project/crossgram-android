@@ -61,6 +61,12 @@ describe.skipIf(!sourceRoot)("real upstream poke menus", () => {
     expect(chat).toContain("CrossgramPoke.setConversation(currentAccount, dialog_id);");
     expect(previewer).toContain("CrossgramPoke.appendMenu(menu, data.parentObject, resourcesProvider, () -> setData(data));");
     expect(previewer).toContain("!CrossgramPoke.keepsMenuLast(data.parentObject)");
+    // Upstream writes the fallback menu as one fluent chain, so the helper has
+    // to hand the same ItemOptions back or the fork stops compiling.
+    expect(helper).toContain("public static ItemOptions appendOptions(ItemOptions options, TLRPC.User user)");
+    expect(chat).toMatch(
+      /CrossgramPoke\.appendOptions\(ItemOptions\.makeOptions\(ChatActivity\.this, cell\), user\)\s*\n\s*\.add\(/,
+    );
     // Whatever the upstream calls its serialized-data interface, the helper has
     // to match the tree it is installed into.
     const modernStream = await access(

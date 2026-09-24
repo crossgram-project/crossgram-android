@@ -114,14 +114,18 @@ public final class CrossgramPoke {
         }
     }
 
-    /** Add the single-poke row to the small avatar menu used when no previewer is possible. */
-    public static void appendOptions(ItemOptions options, TLRPC.User user) {
+    /**
+     * Add the single-poke row to the small avatar menu used when no previewer is
+     * possible. Upstream keeps building that menu as one fluent chain, so the
+     * same instance has to come back out.
+     */
+    public static ItemOptions appendOptions(ItemOptions options, TLRPC.User user) {
         final int account = conversationAccount;
         final long dialogId = conversationDialogId;
-        if (maxCount(user, account, dialogId) <= 0) {
-            return;
+        if (maxCount(user, account, dialogId) > 0) {
+            options.add(R.drawable.msg_mention, POKE_LABEL, () -> send(user, account, dialogId, 1));
         }
-        options.add(R.drawable.msg_mention, POKE_LABEL, () -> send(user, account, dialogId, 1));
+        return options;
     }
 
     private static int maxCount(TLRPC.User user, int account, long dialogId) {

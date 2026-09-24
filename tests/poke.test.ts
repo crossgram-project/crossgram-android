@@ -45,12 +45,12 @@ public class ChatActivity extends BaseFragment {
                 });
                 return true;
             } else {
-                CrossgramPokeNotYet(ItemOptions.makeOptions(ChatActivity.this, cell)
+                ItemOptions.makeOptions(ChatActivity.this, cell)
                     .add(R.drawable.msg_openprofile, getString(R.string.OpenProfile), () -> {
                         openProfile(user);
                     })
                     .setDrawScrim(false)
-                    .show());
+                    .show();
                 return true;
             }
         }
@@ -76,7 +76,12 @@ describe("poke Android patch", () => {
     expect(patched).toContain("import org.telegram.messenger.crossgram_poke.CrossgramPoke;");
     expect(patched).toContain("super.onResume();\n        CrossgramPoke.setConversation(currentAccount, dialog_id);\n        checkShowBlur(false);");
     expect(patched.match(/CrossgramPoke.setConversation\(currentAccount, dialog_id\);/g)).toHaveLength(1);
-    expect(patched).toContain("CrossgramPoke.appendOptions(ItemOptions.makeOptions(ChatActivity.this, cell), user)");
+    // Upstream builds that menu as one fluent chain, so the poke row has to be
+    // inserted without breaking it: the helper hands the same ItemOptions back.
+    expect(patched).toMatch(
+      /CrossgramPoke\.appendOptions\(ItemOptions\.makeOptions\(ChatActivity\.this, cell\), user\)\s*\n\s*\.add\(/,
+    );
+    expect(patched).toContain(".setDrawScrim(false)\n                    .show();");
     expect(patchChatActivity(patched)).toBe(patched);
   });
 
