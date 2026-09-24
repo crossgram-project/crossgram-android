@@ -10,6 +10,7 @@ import {
   applyRawAnimation,
   patchAnimatedEmojiRawAnimation,
   patchFfmpegRawAnimation,
+  patchVideoFrameReader,
   patchGifVideoRawAnimation,
   patchImageLoaderRawAnimation,
   patchMessageObjectRawAnimation,
@@ -201,6 +202,26 @@ extern "C" JNIEXPORT jint JNICALL Java_org_telegram_ui_Components_AnimatedFileNa
 }
 `;
 
+// Nagram moved frame pumping into VideoFrameReader; the seek it exposes has to
+// cope with containers that carry no timestamps at all.
+const videoFrameReaderFixture = [
+  "class VideoFrameReader {",
+  "public:",
+  "    bool seek(int64_t pts,",
+  "              int flags = AVSEEK_FLAG_BACKWARD) {",
+  "        int ret = av_seek_frame(m_fmt, m_streamIndex, pts, flags);",
+  "        if (ret < 0) {",
+  "            return false;",
+  "        }",
+  "        avcodec_flush_buffers(m_dec);",
+  "        av_frame_unref(m_frame);",
+  "        m_draining = false;",
+  "        return true;",
+  "    }",
+  "};",
+  "",
+].join("\n");
+
 describe("Android raw GIF/APNG patch", () => {
   it("routes APNG MIME and .apng documents through the existing GIF UI", () => {
     const patched = patchMessageObjectRawAnimation(messageObjectFixture);
@@ -256,6 +277,33 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patched).toContain("--enable-decoder=png");
     expect(patched).toContain("--enable-demuxer=apng");
     expect(patchFfmpegRawAnimation(patched, "build_ffmpeg.sh")).toBe(patched);
+  });
+
+  it("restarts timestamp-less containers through the reader seek", () => {
+    const patched = patchVideoFrameReader(videoFrameReaderFixture, "video_frame_reader.h");
+    // GIF and APNG have no timestamps: keep the timestamp seek, then use the
+    // frame-index seek Telegram relied on before the reader existed.
+    expect(patched).toContain("flags | AVSEEK_FLAG_FRAME");
+    expect(patched).toContain("avio_seek(m_fmt->pb, 0, SEEK_SET)");
+    expect(patched).toContain("CROSSGRAM: GIF and APNG carry no timestamps");
+    expect(patchVideoFrameReader(patched, "video_frame_reader.h")).toBe(patched);
+  });
+
+  it("rewinds the reader past the frames find_stream_info() already consumed", () => {
+    const withReader = modernGifVideoFixture.replace(
+      "extern \"C\" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo",
+      "    info->reader = new VideoFrameReader(info->fmt_ctx, info->video_dec_ctx, info->video_stream_idx);\n"
+        + "\nextern \"C\" JNIEXPORT void JNICALL Java_org_telegram_ui_Components_AnimatedFileNative_nGetVideoInfo",
+    );
+    const patched = patchGifVideoRawAnimation(withReader);
+    const creation = patched.indexOf("info->reader = new VideoFrameReader(");
+    const rewind = patched.indexOf("CROSSGRAM: find_stream_info() already consumed this input.");
+    expect(creation).toBeGreaterThanOrEqual(0);
+    expect(rewind).toBeGreaterThan(creation);
+    expect(patched).toContain("info->reader->seek(0);");
+    expect(patchGifVideoRawAnimation(patched)).toBe(patched);
+    // Forks that drive FFmpeg without the reader stay untouched.
+    expect(patchGifVideoRawAnimation(modernGifVideoFixture)).not.toContain("find_stream_info()");
   });
 
   it("keeps the one-entry-per-line FFmpeg option list intact", () => {
@@ -350,6 +398,9 @@ describe("Android raw GIF/APNG patch", () => {
       const thirdParty = path.join(ffmpeg, "third_party");
       await mkdir(thirdParty, { recursive: true });
       await writeFile(path.join(thirdParty, "build_ffmpeg.sh"), ffmpegArrayFixture, "utf8");
+      const frameReader = path.join(ffmpeg, "gifvideo");
+      await mkdir(frameReader, { recursive: true });
+      await writeFile(path.join(frameReader, "video_frame_reader.h"), videoFrameReaderFixture, "utf8");
       const prebuild = path.join(ffmpeg, "prebuild");
       await mkdir(prebuild, { recursive: true });
       await writeFile(path.join(prebuild, "build_ffmpeg.sh"), ffmpegArrayFixture, "utf8");
@@ -366,6 +417,9 @@ describe("Android raw GIF/APNG patch", () => {
         .toContain("        --enable-decoder=apng\n");
       expect(await readFile(path.join(prebuild, "build_ffmpeg.sh"), "utf8"))
         .toContain("        --enable-demuxer=apng\n");
+      expect(changed).toContain("TMessagesProj/jni/gifvideo/video_frame_reader.h");
+      expect(await readFile(path.join(frameReader, "video_frame_reader.h"), "utf8"))
+        .toContain("flags | AVSEEK_FLAG_FRAME");
       expect(await applyRawAnimation(root, getUpstream("nagram"))).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });

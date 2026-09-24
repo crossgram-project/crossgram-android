@@ -274,6 +274,53 @@ export function patchFfmpegRawAnimation(initial: string, file: string): string {
   return source;
 }
 
+/** Apply an edit when its anchor exists; forks without the anchor keep building. */
+function replaceRegexIfPresent(
+  source: string,
+  pattern: RegExp,
+  replacement: string,
+  marker: string,
+): string {
+  if (source.includes(marker)) return source;
+  const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
+  if ([...source.matchAll(new RegExp(pattern.source, flags))].length !== 1) return source;
+  return source.replace(pattern, replacement);
+}
+
+const videoFrameReaderFile = "TMessagesProj/jni/gifvideo/video_frame_reader.h";
+
+/**
+ * The reader seeks with a timestamp, which the containers QQ relays as stickers
+ * and reactions (GIF and APNG) cannot answer: av_seek_frame() rejects them and
+ * the animation stays on its last frame instead of looping. Keep the timestamp
+ * seek for real videos, then fall back to the frame-index seek Telegram used
+ * before the reader existed, and finally to rewinding the input by hand.
+ */
+export function patchVideoFrameReader(initial: string, file: string): string {
+  return replaceRegexOnce(
+    initial,
+    /(^[ \t]*)int ret = av_seek_frame\(m_fmt, m_streamIndex, pts, flags\);\r?\n([ \t]*)if \(ret < 0\) \{\r?\n[ \t]*return false;\r?\n[ \t]*\}/m,
+    [
+      "$1int ret = av_seek_frame(m_fmt, m_streamIndex, pts, flags);",
+      "$2if (ret < 0) {",
+      "$2    /* CROSSGRAM: GIF and APNG carry no timestamps, so the seek above is",
+      "$2       rejected; the frame-index seek is what restarts those streams. */",
+      "$2    ret = av_seek_frame(m_fmt, m_streamIndex, pts, flags | AVSEEK_FLAG_FRAME);",
+      "$2}",
+      "$2if (ret < 0 && pts <= 0 && m_fmt->pb != nullptr) {",
+      "$2    ret = avio_seek(m_fmt->pb, 0, SEEK_SET) < 0 ? -1 : 0;",
+      "$2}",
+      "$2if (ret < 0) {",
+      "$2    return false;",
+      "$2}",
+    ].join("\n"),
+    "CROSSGRAM: GIF and APNG carry no timestamps",
+    file,
+    "restart timestamp-less containers",
+  );
+}
+
+
 export function patchGifVideoRawAnimation(initial: string): string {
   let source = initial.replace(
     "    return crossgramDurationMs(info);\n}\n\nextern",
@@ -288,6 +335,23 @@ export function patchGifVideoRawAnimation(initial: string): string {
       "dataArr[4] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);",
       "dataArr[4] = crossgramDurationMs(info);",
     );
+  // Nagram's reader starts where avformat_find_stream_info() left the input.
+  // For files that fit its probe buffer - QQ relays stickers that small - that
+  // is the end of the file, so only the frame it decoded stays reachable and the
+  // animation never advances. Rewind before the first pull.
+  source = replaceRegexIfPresent(
+    source,
+    /^([ \t]*)info->reader = new VideoFrameReader\([^\r\n]*\);[ \t]*\r?$/m,
+    [
+      '$&',
+      '$1/* CROSSGRAM: find_stream_info() already consumed this input. */',
+      '$1if (info->reader != nullptr) {',
+      '$1    info->reader->seek(0);',
+      '$1}',
+    ].join("\n"),
+    "CROSSGRAM: find_stream_info() already consumed this input",
+  );
+
   if (!source.includes("#include <libavutil/pixdesc.h>")) {
     // Recent VideoFrameReader sources include eval/display but no intmath;
     // older AnimatedFileDrawable sources include intmath. Select one stable
@@ -573,5 +637,6 @@ export async function applyRawAnimation(root: string, _upstream: Upstream): Prom
   for (const script of ffmpegScripts) {
     await patchOptionalFile(root, script, patchFfmpegRawAnimation, changedFiles);
   }
+  await patchOptionalFile(root, videoFrameReaderFile, patchVideoFrameReader, changedFiles);
   return changedFiles;
 }
