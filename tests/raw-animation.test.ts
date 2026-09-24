@@ -248,10 +248,12 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patchAnimatedEmojiRawAnimation(patched)).toBe(patched);
   });
 
-  it("enables APNG and its zlib dependency in FFmpeg idempotently", () => {
+  it("enables APNG, the PNG decoder it links against, and zlib idempotently", () => {
     const patched = patchFfmpegRawAnimation(ffmpegFixture, "build_ffmpeg.sh");
     expect(patched).toContain("--enable-zlib");
     expect(patched).toContain("--enable-decoder=apng");
+    // Only this flag builds aarch64/pngdsp_init.o, which pngdsp.o needs on ARM64.
+    expect(patched).toContain("--enable-decoder=png");
     expect(patched).toContain("--enable-demuxer=apng");
     expect(patchFfmpegRawAnimation(patched, "build_ffmpeg.sh")).toBe(patched);
   });
@@ -259,9 +261,13 @@ describe("Android raw GIF/APNG patch", () => {
   it("keeps the one-entry-per-line FFmpeg option list intact", () => {
     const patched = patchFfmpegRawAnimation(ffmpegArrayFixture, "build_ffmpeg.sh");
     expect(patched).toContain("        --enable-zlib\n");
-    expect(patched).toContain(
-      "        --enable-decoder=gif\n        --enable-decoder=apng\n        --enable-decoder=alac\n",
-    );
+    for (const option of ["--enable-decoder=apng", "--enable-decoder=png", "--enable-demuxer=apng"]) {
+      expect(patched).toContain("        " + option + "\n");
+    }
+    expect(patched).toContain("        --enable-decoder=alac\n");
+    // The inserted options stay inside the list, before the entry that followed
+    // the anchor.
+    expect(patched).toMatch(/--enable-decoder=gif\n(\s+--enable-decoder=(?:apng|png)\n)+\s+--enable-decoder=alac\n/);
     expect(patched).toContain(
       "        --enable-demuxer=gif\n        --enable-demuxer=apng\n        --enable-demuxer=ogg\n",
     );

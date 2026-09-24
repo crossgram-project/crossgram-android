@@ -251,6 +251,10 @@ export function patchFfmpegRawAnimation(initial: string, file: string): string {
   }
   const apngFlags: readonly (readonly [string, string])[] = [
     ["--enable-decoder=apng", "enable the APNG codec"],
+    // APNG pulls in the shared PNG objects (pngdsp.o among them) but not the
+    // PNG decoder flag, and only that flag builds aarch64/pngdsp_init.o: the
+    // ARM64 link otherwise fails on the undefined ff_pngdsp_init_aarch64.
+    ["--enable-decoder=png", "enable the PNG decoder the APNG codec links against"],
     ["--enable-demuxer=apng", "enable the APNG container"],
   ];
   for (const [flag, label] of apngFlags) {
