@@ -11,7 +11,6 @@ import { applyFastUpload } from "../features/fast-upload/patch.js";
 import { applySendCancellation } from "../features/send-cancellation/patch.js";
 import { applyRecalled } from "../features/recalled/patch.js";
 import { applyPoke } from "../features/poke/patch.js";
-import { applyReactions } from "../features/reactions/patch.js";
 import { applyUpdater } from "../features/updater/patch.js";
 import { applyBrand, getBrand } from "./branding.js";
 import { prepareBuild, type BuildVariant } from "./build/prepare.js";
@@ -41,7 +40,6 @@ async function main(): Promise<void> {
     const fastUploadFiles = await applyFastUpload(root, upstream);
     const recalledFiles = await applyRecalled(root, upstream);
     const pokeFiles = await applyPoke(root, upstream);
-    const reactionFiles = await applyReactions(root, upstream);
     const updaterFiles = await applyUpdater(root, upstream);
     console.log(JSON.stringify({
       client: upstream.id,
@@ -56,7 +54,6 @@ async function main(): Promise<void> {
         ...fastUploadFiles,
         ...recalledFiles,
         ...pokeFiles,
-        ...reactionFiles,
         ...updaterFiles,
       ],
     }, null, 2));
