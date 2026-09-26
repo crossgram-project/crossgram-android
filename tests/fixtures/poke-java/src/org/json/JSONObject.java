@@ -20,4 +20,13 @@ public class JSONObject {
         final Matcher matcher = Pattern.compile("\"" + name + "\"\\s*:\\s*(\\d+)").matcher(text);
         return matcher.find() ? Integer.parseInt(matcher.group(1)) : fallback;
     }
+
+    public boolean has(String name) {
+        return Pattern.compile("\"" + name + "\"\\s*:").matcher(text).find();
+    }
+
+    public boolean optBoolean(String name, boolean fallback) {
+        final Matcher matcher = Pattern.compile("\"" + name + "\"\\s*:\\s*(true|false)").matcher(text);
+        return matcher.find() ? Boolean.parseBoolean(matcher.group(1)) : fallback;
+    }
 }

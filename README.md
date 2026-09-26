@@ -24,6 +24,13 @@ Telegram 没有「戳一戳」，修改版客户端把它加到围绕头像的�
 Telegram 走的小型头像菜单只加单次戳一戳。入口只在服务器回答「这个会话支持 poke」后出现，
 官方服务器上不会显示；RPC 与官方服务器兼容方式见 [`features/poke`](features/poke)。
 
+QQ 私聊没有消息 reaction，但 relay 的表情目录是整个账号级的，且 Telegram Android 对私聊一律按
+「可以 reaction」处理，于是私聊也会出现 reaction 入口、发送时才被 relay 拒绝。修改版客户端在打开
+会话时先问一次 `crossgram.getFeatures`，只有 relay 明确回答
+`{"reactions":{"supported":false}}` 才隐藏入口；群会话保留上游自己的
+`available_reactions` 判断，没有 Crossgram API 的服务器行为与官方一致。见
+[`features/reactions`](features/reactions)。
+
 `features/server-e2e` 是默认关闭的测试 feature。只有显式运行
 `yarn e2e:source` 或 Android E2E workflow 时才会注入 debug Activity、测试签名放行和
 直接业务函数入口；常规 `patch:source` 与 release workflow 不会应用它。详细方法、命令与
