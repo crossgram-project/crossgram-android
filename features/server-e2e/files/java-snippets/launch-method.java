@@ -148,6 +148,38 @@
             android.util.Log.i("CrossgramE2E", "function_called:stickerFiles");
             return true;
         }
+        if ("sticker-cells".equals(command)) {
+            // Renders every sticker of one set through the production panel
+            // cell and inspects the bitmap it draws: a sticker "loaded only
+            // halfway" shows as a decoded bitmap whose lower rows are blank.
+            long setId = intent.getLongExtra("crossgram_e2e_sticker_set_id", 0);
+            MediaDataController mediaDataController = MediaDataController.getInstance(currentAccount);
+            mediaDataController.loadStickers(MediaDataController.TYPE_IMAGE, false, true, true);
+            final int[] attempts = { 0 };
+            final Runnable[] start = new Runnable[1];
+            start[0] = () -> {
+                TLRPC.TL_messages_stickerSet set = null;
+                for (TLRPC.TL_messages_stickerSet pack
+                        : mediaDataController.getStickerSets(MediaDataController.TYPE_IMAGE)) {
+                    if (setId == 0 || pack.set.id == setId) {
+                        set = pack;
+                        break;
+                    }
+                }
+                if (set == null) {
+                    if (++attempts[0] >= 60) {
+                        android.util.Log.e("CrossgramE2E", "sticker_cells_failed reason=set_missing set_id=" + setId);
+                        return;
+                    }
+                    AndroidUtilities.runOnUIThread(start[0], 250);
+                    return;
+                }
+                runCrossgramE2eStickerCells(set);
+            };
+            AndroidUtilities.runOnUIThread(start[0], 250);
+            android.util.Log.i("CrossgramE2E", "function_called:stickerCells");
+            return true;
+        }
         if ("sticker-install".equals(command)) {
             long setId = intent.getLongExtra("crossgram_e2e_sticker_set_id", 0);
             if (setId <= 0) {
@@ -1635,6 +1667,123 @@
                     query, dialogId, 0, classGuid, 0, 0, null, null, null, null);
             android.util.Log.i("CrossgramE2E", "function_called:searchMessagesInChat");
             return true;
+    }
+
+    private void runCrossgramE2eStickerCells(TLRPC.TL_messages_stickerSet set) {
+            java.util.ArrayList<TLRPC.Document> documents = new java.util.ArrayList<>(set.documents);
+            android.view.ViewGroup root = (android.view.ViewGroup) getWindow().getDecorView();
+            android.widget.FrameLayout host = new android.widget.FrameLayout(this);
+            host.setBackgroundColor(0xff202020);
+            root.addView(host, new android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            final int columns = 5;
+            final int pageSize = columns * 6;
+            final int cellSize = AndroidUtilities.displaySize.x / columns;
+            final int[] cursor = { 0 };
+            final int[] counts = { 0, 0, 0 };
+            final long startedAt = android.os.SystemClock.elapsedRealtime();
+            final Runnable[] page = new Runnable[1];
+            page[0] = () -> {
+                host.removeAllViews();
+                if (cursor[0] >= documents.size()) {
+                    root.removeView(host);
+                    android.util.Log.i("CrossgramE2E", "sticker_cells_done set_id=" + set.set.id
+                            + " total=" + documents.size() + " full=" + counts[0] + " partial=" + counts[1]
+                            + " unloaded=" + counts[2]
+                            + " duration_ms=" + (android.os.SystemClock.elapsedRealtime() - startedAt));
+                    return;
+                }
+                final int first = cursor[0];
+                final int last = Math.min(documents.size(), first + pageSize);
+                final java.util.ArrayList<org.telegram.ui.Cells.StickerEmojiCell> cells = new java.util.ArrayList<>();
+                for (int index = first; index < last; index++) {
+                    org.telegram.ui.Cells.StickerEmojiCell cell =
+                            new org.telegram.ui.Cells.StickerEmojiCell(this, true, null);
+                    int slot = index - first;
+                    android.widget.FrameLayout.LayoutParams params =
+                            new android.widget.FrameLayout.LayoutParams(cellSize, cellSize);
+                    params.leftMargin = (slot % columns) * cellSize;
+                    params.topMargin = (slot / columns) * cellSize;
+                    host.addView(cell, params);
+                    cell.setSticker(documents.get(index), set, false);
+                    cells.add(cell);
+                }
+                final int[] waited = { 0 };
+                final Runnable[] check = new Runnable[1];
+                check[0] = () -> {
+                    boolean settled = true;
+                    for (org.telegram.ui.Cells.StickerEmojiCell cell : cells) {
+                        if (!cell.getImageView().hasImageLoaded()) settled = false;
+                    }
+                    if (!settled && ++waited[0] < 120) {
+                        AndroidUtilities.runOnUIThread(check[0], 250);
+                        return;
+                    }
+                    for (int slot = 0; slot < cells.size(); slot++) {
+                        TLRPC.Document document = documents.get(first + slot);
+                        org.telegram.messenger.ImageReceiver receiver = cells.get(slot).getImageView();
+                        float[] coverage = crossgramE2eBitmapCoverage(receiver);
+                        if (coverage == null) {
+                            counts[2]++;
+                            android.util.Log.e("CrossgramE2E", "sticker_cell_bad reason=unloaded document_id="
+                                    + document.id + " mime=" + document.mime_type);
+                        } else if (coverage[0] < 0.8f && coverage[1] > 0.05f) {
+                            counts[1]++;
+                            android.util.Log.e("CrossgramE2E", "sticker_cell_bad reason=partial document_id="
+                                    + document.id + " mime=" + document.mime_type
+                                    + " painted_rows=" + coverage[0] + " top_rows=" + coverage[1]);
+                        } else {
+                            counts[0]++;
+                        }
+                    }
+                    android.util.Log.i("CrossgramE2E", "sticker_cells_progress checked=" + last
+                            + " total=" + documents.size());
+                    cursor[0] = last;
+                    AndroidUtilities.runOnUIThread(page[0], 100);
+                };
+                AndroidUtilities.runOnUIThread(check[0], 250);
+            };
+            AndroidUtilities.runOnUIThread(page[0]);
+            android.util.Log.i("CrossgramE2E", "sticker_cells_started set_id=" + set.set.id + " total=" + documents.size());
+    }
+
+    /**
+     * {painted rows ratio of the drawn bitmap's bounding box, painted ratio of
+     * its top quarter}, or null when the receiver has no bitmap.  A half
+     * decoded JPEG/GIF paints its top rows and leaves the rest blank or grey.
+     */
+    private float[] crossgramE2eBitmapCoverage(org.telegram.messenger.ImageReceiver receiver) {
+            if (receiver == null || !receiver.hasImageLoaded()) return null;
+            android.graphics.Bitmap bitmap = receiver.getBitmap();
+            if (bitmap == null || bitmap.isRecycled()) return null;
+            int width = bitmap.getWidth();
+            int height = bitmap.getHeight();
+            if (width <= 0 || height <= 0) return null;
+            android.graphics.Bitmap sample = bitmap.getConfig() == android.graphics.Bitmap.Config.HARDWARE
+                    ? bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, false) : bitmap;
+            if (sample == null) return null;
+            int painted = 0;
+            int topPainted = 0;
+            int topRows = Math.max(1, height / 4);
+            int[] row = new int[width];
+            for (int y = 0; y < height; y++) {
+                sample.getPixels(row, 0, width, 0, y, width, 1);
+                int first = row[0];
+                boolean varied = false;
+                for (int x = 0; x < width; x++) {
+                    int pixel = row[x];
+                    if ((pixel >>> 24) != 0 && pixel != first) {
+                        varied = true;
+                        break;
+                    }
+                }
+                if (varied) {
+                    painted++;
+                    if (y < topRows) topPainted++;
+                }
+            }
+            if (sample != bitmap) sample.recycle();
+            return new float[] { painted / (float) height, topPainted / (float) topRows };
     }
 
     private void runCrossgramE2eStickerFiles(TLRPC.TL_messages_stickerSet set, boolean clearCache) {

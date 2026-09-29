@@ -97,6 +97,14 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain('"gif_no_trailer"');
     expect(patched).toContain("sticker_files_done set_id=");
     expect(patched).toContain("private String crossgramE2eTruncatedImage(java.io.File file)");
+    // sticker-cells renders the set through the production panel cell and
+    // rejects bitmaps painted only across their top rows.
+    expect(patched).toContain('"sticker-cells".equals(command)');
+    expect(patched).toContain("new org.telegram.ui.Cells.StickerEmojiCell(this, true, null)");
+    expect(patched).toContain("cell.setSticker(documents.get(index), set, false)");
+    expect(patched).toContain("private float[] crossgramE2eBitmapCoverage(org.telegram.messenger.ImageReceiver receiver)");
+    expect(patched).toContain("sticker_cell_bad reason=partial");
+    expect(patched).toContain("sticker_cells_done set_id=");
     expect(patched).toContain('"sticker-recent-seed".equals(command)');
     expect(patched).toContain('"sticker-recent-send".equals(command)');
     expect(patched).toContain('"raw-animation-file".equals(command)');

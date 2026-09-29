@@ -81,6 +81,8 @@ export function patchLaunchE2eSource(initial: string, file: string, method: stri
     { name: "runCrossgramE2eWithMessages", returnType: "boolean" },
     { name: "runCrossgramE2eDownload", returnType: "boolean" },
     { name: "runCrossgramE2eSearch", returnType: "boolean" },
+    { name: "runCrossgramE2eStickerCells", returnType: "void" },
+    { name: "crossgramE2eBitmapCoverage", returnType: "float[]" },
     { name: "runCrossgramE2eStickerFiles", returnType: "void" },
     { name: "crossgramE2eTruncatedImage", returnType: "String" },
   ];
