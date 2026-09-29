@@ -268,6 +268,21 @@ export function patchFfmpegRawAnimation(initial: string, file: string): string {
       label,
     );
   }
+  // The GIF demuxer emits raw 1 KiB chunks (AVSTREAM_PARSE_FULL_RAW) and
+  // relies on the GIF parser to reassemble whole frames. `--disable-everything`
+  // drops that parser, so the decoder only ever sees the first chunk: one
+  // partial frame (a solid block or the top rows of the sticker) and no
+  // animation at all. Keep it next to the demuxer, outside any optional
+  // parser block, so every build that can demux GIF can also parse it.
+  if (!source.includes("--enable-parser=gif")) {
+    source = rewriteConfigureLine(
+      source,
+      /^([ \t]*)--enable-demuxer=gif[ \t]*(?:\\[ \t]*)?$/m,
+      (line) => appendConfigureLine(line, "--enable-parser=gif"),
+      file,
+      "enable the GIF parser the GIF demuxer depends on",
+    );
+  }
   if (!source.includes("--enable-zlib")) {
     throw new Error(file + ": FFmpeg zlib configuration anchor was not found");
   }

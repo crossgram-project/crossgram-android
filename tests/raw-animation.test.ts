@@ -279,6 +279,42 @@ describe("Android raw GIF/APNG patch", () => {
     expect(patchFfmpegRawAnimation(patched, "build_ffmpeg.sh")).toBe(patched);
   });
 
+  it("enables the GIF parser the GIF demuxer needs to assemble whole frames", async () => {
+    // FFmpeg's GIF demuxer hands out raw 1 KiB chunks and marks the stream
+    // AVSTREAM_PARSE_FULL_RAW; without the parser the decoder only sees the
+    // first chunk, draws one partial frame and never animates.
+    for (const fixture of [ffmpegFixture, ffmpegArrayFixture]) {
+      const patched = patchFfmpegRawAnimation(fixture, "build_ffmpeg.sh");
+      expect(patched.match(/--enable-parser=gif/g)).toHaveLength(1);
+      expect(patched.indexOf("--enable-parser=gif")).toBeGreaterThan(patched.indexOf("--enable-demuxer=gif"));
+      expect(patchFfmpegRawAnimation(patched, "build_ffmpeg.sh")).toBe(patched);
+    }
+    // A build that already ships the parser keeps a single copy.
+    const shipped = ffmpegArrayFixture.replace("--enable-demuxer=gif\n", "--enable-demuxer=gif\n        --enable-parser=gif\n");
+    expect(patchFfmpegRawAnimation(shipped, "build_ffmpeg.sh").match(/--enable-parser=gif/g)).toHaveLength(1);
+  });
+
+  it("enables the GIF parser in every upstream FFmpeg build script it patches", async () => {
+    const { existsSync } = await import("node:fs");
+    const scripts = [
+      "upstream-check/nagram/TMessagesProj/jni/third_party/build_ffmpeg.sh",
+      "upstream-check/telegram/TMessagesProj/jni/ffmpeg/build_ffmpeg/build_ffmpeg.sh",
+      "upstream-check/nullgram/TMessagesProj/jni/ffmpeg/build_ffmpeg/build_ffmpeg.sh",
+    ];
+    let checked = 0;
+    for (const relative of scripts) {
+      const file = path.resolve("..", "work", "references", relative);
+      if (!existsSync(file)) continue;
+      checked++;
+      const patched = patchFfmpegRawAnimation(await readFile(file, "utf8"), relative);
+      expect(patched.match(/--enable-parser=gif/g), relative).toHaveLength(1);
+    }
+    // Only meaningful where the reference checkouts exist (developer machines).
+    if (existsSync(path.resolve("..", "work", "references", "upstream-check"))) {
+      expect(checked).toBe(scripts.length);
+    }
+  });
+
   it("restarts timestamp-less containers through the reader seek", () => {
     const patched = patchVideoFrameReader(videoFrameReaderFixture, "video_frame_reader.h");
     // GIF and APNG have no timestamps: keep the timestamp seek, then use the
@@ -316,8 +352,8 @@ describe("Android raw GIF/APNG patch", () => {
     // The inserted options stay inside the list, before the entry that followed
     // the anchor.
     expect(patched).toMatch(/--enable-decoder=gif\n(\s+--enable-decoder=(?:apng|png)\n)+\s+--enable-decoder=alac\n/);
-    expect(patched).toContain(
-      "        --enable-demuxer=gif\n        --enable-demuxer=apng\n        --enable-demuxer=ogg\n",
+    expect(patched).toMatch(
+      /        --enable-demuxer=gif\n(        --enable-(?:demuxer=apng|parser=gif)\n){2}        --enable-demuxer=ogg\n/,
     );
     // A continuation there would glue the next option onto the inserted one.
     expect(patched).not.toContain("apng \\");
