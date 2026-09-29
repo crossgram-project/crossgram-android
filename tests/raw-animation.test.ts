@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   applyRawAnimation,
   patchAnimatedEmojiRawAnimation,
+  patchBitmapsCacheRawAnimation,
   patchFfmpegRawAnimation,
   patchVideoFrameReader,
   patchGifVideoRawAnimation,
@@ -292,6 +293,25 @@ describe("Android raw GIF/APNG patch", () => {
     // A build that already ships the parser keeps a single copy.
     const shipped = ffmpegArrayFixture.replace("--enable-demuxer=gif\n", "--enable-demuxer=gif\n        --enable-parser=gif\n");
     expect(patchFfmpegRawAnimation(shipped, "build_ffmpeg.sh").match(/--enable-parser=gif/g)).toHaveLength(1);
+  });
+
+  it("re-keys pre-rendered frame caches so broken GIF renders are not reused", async () => {
+    const { existsSync } = await import("node:fs");
+    const fixture = `file = new File(fileTmo, fileName + "_" + w + "_" + h + (noLimit ? "_nolimit" : " ") + ".pcache2");`;
+    const patched = patchBitmapsCacheRawAnimation(fixture);
+    expect(patched).toContain('(noLimit ? "_nolimit" : " ") + "_cg2" + ".pcache2");');
+    expect(patchBitmapsCacheRawAnimation(patched)).toBe(patched);
+    const fitz = `file = new File(fileTmo, fileName + "_" + w + "_" + h + (noLimit ? "_nolimit" : " ") + (fitz != 0 ? "_fitz" + fitz : "") + ".pcache2");`;
+    expect(patchBitmapsCacheRawAnimation(fitz)).toContain('(fitz != 0 ? "_fitz" + fitz : "") + "_cg2" + ".pcache2");');
+    for (const relative of [
+      "upstream-check/nagram", "upstream-check/telegram", "upstream-check/nnngram",
+      "upstream-check/nullgram", "mercurygram", "forkgram",
+    ]) {
+      const file = path.resolve("..", "work", "references", relative,
+        "TMessagesProj/src/main/java/org/telegram/messenger/utils/BitmapsCache.java");
+      if (!existsSync(file)) continue;
+      expect(patchBitmapsCacheRawAnimation(await readFile(file, "utf8")).match(/"_cg2"/g), relative).toHaveLength(1);
+    }
   });
 
   it("enables the GIF parser in every upstream FFmpeg build script it patches", async () => {

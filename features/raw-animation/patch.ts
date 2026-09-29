@@ -303,6 +303,7 @@ function replaceRegexIfPresent(
 }
 
 const videoFrameReaderFile = "TMessagesProj/jni/gifvideo/video_frame_reader.h";
+const bitmapsCacheFile = "TMessagesProj/src/main/java/org/telegram/messenger/utils/BitmapsCache.java";
 
 /**
  * The reader seeks with a timestamp, which the containers QQ relays as stickers
@@ -653,5 +654,24 @@ export async function applyRawAnimation(root: string, _upstream: Upstream): Prom
     await patchOptionalFile(root, script, patchFfmpegRawAnimation, changedFiles);
   }
   await patchOptionalFile(root, videoFrameReaderFile, patchVideoFrameReader, changedFiles);
+  await patchOptionalFile(root, bitmapsCacheFile, patchBitmapsCacheRawAnimation, changedFiles);
   return changedFiles;
+}
+
+/**
+ * Pre-rendered frame caches (`acache/*.pcache2`) are keyed only by the source
+ * file name and size. Builds without the GIF parser rendered QQ's GIF stickers
+ * from a single partial chunk and stored that as the whole animation, so after
+ * updating, the panel kept drawing the broken frame from disk. Version the key
+ * so every build decoding raw GIFs correctly renders them afresh.
+ */
+export function patchBitmapsCacheRawAnimation(initial: string, file = bitmapsCacheFile): string {
+  return replaceRegexOnce(
+    initial,
+    /\+\s*"\.pcache2"\);/,
+    '+ "_cg2" + ".pcache2");',
+    '"_cg2" + ".pcache2"',
+    file,
+    "re-render frame caches the parser-less GIF decoder produced",
+  );
 }

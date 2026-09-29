@@ -1731,7 +1731,8 @@
                             counts[1]++;
                             android.util.Log.e("CrossgramE2E", "sticker_cell_bad reason=partial document_id="
                                     + document.id + " mime=" + document.mime_type
-                                    + " painted_rows=" + coverage[0] + " top_rows=" + coverage[1]);
+                                    + " painted_rows=" + coverage[0] + " top_rows=" + coverage[1]
+                                    + " dump=" + crossgramE2eDumpBitmap(receiver, "cell_" + document.id));
                         } else {
                             counts[0]++;
                         }
@@ -1752,6 +1753,26 @@
      * its top quarter}, or null when the receiver has no bitmap.  A half
      * decoded JPEG/GIF paints its top rows and leaves the rest blank or grey.
      */
+    /** Writes the bitmap a receiver currently draws to the app's external files dir. */
+    private String crossgramE2eDumpBitmap(org.telegram.messenger.ImageReceiver receiver, String name) {
+            try {
+                android.graphics.Bitmap bitmap = receiver == null ? null : receiver.getBitmap();
+                if (bitmap == null || bitmap.isRecycled()) return "none";
+                android.graphics.Bitmap sample = bitmap.getConfig() == android.graphics.Bitmap.Config.HARDWARE
+                        ? bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, false) : bitmap;
+                java.io.File directory = new java.io.File(getExternalFilesDir(null), "crossgram-e2e");
+                directory.mkdirs();
+                java.io.File file = new java.io.File(directory, name + ".png");
+                try (java.io.FileOutputStream output = new java.io.FileOutputStream(file)) {
+                    sample.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
+                }
+                if (sample != bitmap) sample.recycle();
+                return file.getAbsolutePath();
+            } catch (Throwable error) {
+                return "error:" + error.getClass().getSimpleName();
+            }
+    }
+
     private float[] crossgramE2eBitmapCoverage(org.telegram.messenger.ImageReceiver receiver) {
             if (receiver == null || !receiver.hasImageLoaded()) return null;
             android.graphics.Bitmap bitmap = receiver.getBitmap();
