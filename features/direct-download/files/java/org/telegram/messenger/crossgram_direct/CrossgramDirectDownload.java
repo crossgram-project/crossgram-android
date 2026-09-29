@@ -115,8 +115,13 @@ public final class CrossgramDirectDownload {
     }
 
     public static Transfer open(String url) {
+        return open(url, 0);
+    }
+
+    /** Opens a transfer that must deliver {@code expectedLength} bytes before it counts as complete. */
+    public static Transfer open(String url, long expectedLength) {
         try {
-            return new Transfer(new CrossgramDirectHttp.Transfer(url));
+            return new Transfer(new CrossgramDirectHttp.Transfer(url, expectedLength));
         } catch (Exception error) {
             return null;
         }

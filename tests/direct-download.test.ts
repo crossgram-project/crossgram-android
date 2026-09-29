@@ -105,7 +105,7 @@ describe("Android direct-download patch", () => {
     const patched = patchFileLoadOperation(fixture);
     expect(patched).toContain("CrossgramDirectDownload.resolve(currentAccount, datacenterId, location");
     expect(patched).toContain("CrossgramDirectDownload.begin(fileName);");
-    expect(patched).toContain("CrossgramDirectDownload.open(resolved.url)");
+    expect(patched).toContain("CrossgramDirectDownload.open(resolved.url, totalBytesCount)");
     expect(patched).toContain("CrossgramDirectDownload.read(");
     expect(patched).not.toContain("CrossgramDirectDownload.loadRange(");
     expect(patched).toContain("clearOperation(requestInfo, false, false);");
@@ -259,7 +259,7 @@ public final class Harness {
         "&& (crossgramDirectUrl == null || crossgramDirectUrlExpiresAt <= System.currentTimeMillis())) {",
       )
       .replace(
-        `                        crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url);
+        `                        crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url, totalBytesCount);
                         if (crossgramDirectTransfer != null) {
                             crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
                             CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "http_transfer_started");
@@ -282,9 +282,22 @@ public final class Harness {
       );
 
     const migrated = patchFileLoadOperation(previous);
-    expect(migrated).toContain("CrossgramDirectDownload.open(resolved.url)");
+    expect(migrated).toContain("CrossgramDirectDownload.open(resolved.url, totalBytesCount)");
     expect(migrated).toContain("CrossgramDirectDownload.read(");
     expect(migrated).not.toContain("CrossgramDirectDownload.loadRange(");
+  });
+
+  it("hands the document size to a transfer an earlier patch opened blind", () => {
+    // A short body only reads as truncated when the transfer knows the size.
+    const current = patchFileLoadOperation(fixture);
+    const blind = current.replace(
+      "CrossgramDirectDownload.open(resolved.url, totalBytesCount)",
+      "CrossgramDirectDownload.open(resolved.url)",
+    );
+    expect(blind).not.toContain("totalBytesCount)");
+    const migrated = patchFileLoadOperation(blind);
+    expect(migrated).toContain("CrossgramDirectDownload.open(resolved.url, totalBytesCount)");
+    expect(migrated).toBe(current);
   });
 
   it("installs all Java runtime files from the packaged template tree", async () => {

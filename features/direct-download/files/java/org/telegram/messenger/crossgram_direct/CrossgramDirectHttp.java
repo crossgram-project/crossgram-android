@@ -38,6 +38,8 @@ public final class CrossgramDirectHttp {
         private static final long IDLE_CLOSE_MINUTES = 10;
 
         private final String url;
+        /** Advertised file length, or 0 when unknown; bounds what may count as EOF. */
+        private final long expectedLength;
         private final File cacheFile;
         private final RandomAccessFile cache;
         private final Map<Integer, PendingRead> pending = new LinkedHashMap<>();
@@ -50,7 +52,12 @@ public final class CrossgramDirectHttp {
         private String failure;
 
         public Transfer(String url) throws IOException {
+            this(url, 0);
+        }
+
+        public Transfer(String url, long expectedLength) throws IOException {
             this.url = url;
+            this.expectedLength = Math.max(0, expectedLength);
             cacheFile = File.createTempFile("crossgram-direct-", ".cache");
             cache = new RandomAccessFile(cacheFile, "rw");
         }
@@ -140,6 +147,10 @@ public final class CrossgramDirectHttp {
                 if (!validResponse(opened, status, baseOffset)) {
                     throw new IOException("direct HTTP could not resume at " + baseOffset + ", got " + status);
                 }
+                // Telegram treats a part shorter than requested as the end of
+                // the file, so a body that stops early must never read as
+                // complete: it would finalize a half image in the cache.
+                long expectedEnd = expectedEnd(opened, baseOffset, expectedLength);
                 try (InputStream input = opened.getInputStream()) {
                     byte[] buffer = new byte[64 * 1024];
                     while (true) {
@@ -156,6 +167,9 @@ public final class CrossgramDirectHttp {
                         runCompletions(ready);
                         ready = null;
                     }
+                }
+                if (expectedEnd > 0 && downloaded < expectedEnd) {
+                    throw new IOException("direct HTTP body ended at " + downloaded + " of " + expectedEnd + " bytes");
                 }
                 synchronized (this) {
                     complete = true;
@@ -226,6 +240,17 @@ public final class CrossgramDirectHttp {
         for (Completion completion : completions) {
             completion.callback.onResult(completion.bytes, completion.error);
         }
+    }
+
+    /**
+     * Absolute offset the body must reach: the larger of the file length the
+     * relay advertised and what Content-Length promises, 0 when neither is
+     * known (a chunked response of an unknown file ends at its own EOF).
+     */
+    static long expectedEnd(HttpURLConnection connection, long offset, long expectedLength) {
+        long contentLength = connection.getContentLengthLong();
+        long fromHeader = contentLength > 0 ? Math.max(0, offset) + contentLength : 0;
+        return Math.max(fromHeader, expectedLength);
     }
 
     private static boolean validResponse(HttpURLConnection connection, int status, long offset) {

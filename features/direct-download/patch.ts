@@ -52,7 +52,7 @@ export function patchFileLoadOperation(initial: string): string {
     .replace(
       `                        crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
                         CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "url_resolved");`,
-      `                        crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url);
+      `                        crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url, totalBytesCount);
                         if (crossgramDirectTransfer != null) {
                             crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
                             CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "http_transfer_started");
@@ -106,7 +106,7 @@ export function patchFileLoadOperation(initial: string): string {
                     if (resolved != null) {
                         crossgramDirectUrl = resolved.url;
                         crossgramDirectUrlExpiresAt = resolved.expiresAt;
-                        crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url);
+                        crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url, totalBytesCount);
                         if (crossgramDirectTransfer != null) {
                             crossgramDownloadTransport = CrossgramDirectDownload.TRANSPORT_DIRECT;
                             CrossgramDirectDownload.report(fileName, crossgramDownloadTransport, "http_transfer_started");
@@ -198,6 +198,12 @@ $1`,
             CrossgramDirectDownload.close(crossgramDirectTransfer);
             crossgramDirectTransfer = null;
         }${body}`,
+  );
+  // Trees patched before the transfer learned the document size still open
+  // it blind; hand them the size so a short body can no longer count as EOF.
+  source = source.replace(
+    "crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url);",
+    "crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url, totalBytesCount);",
   );
   source = replaceRegexOnce(
     source,

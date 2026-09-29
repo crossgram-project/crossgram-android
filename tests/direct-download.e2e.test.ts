@@ -29,7 +29,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 public final class Harness {
   public static void main(String[] args) throws Exception {
-    CrossgramDirectHttp.Transfer transfer = new CrossgramDirectHttp.Transfer(args[0]);
+    long expectedLength = args.length > 5 ? Long.parseLong(args[5]) : 0;
+    CrossgramDirectHttp.Transfer transfer = new CrossgramDirectHttp.Transfer(args[0], expectedLength);
     CountDownLatch done = new CountDownLatch(2);
     String[] results = new String[2];
     transfer.read(1, Long.parseLong(args[1]), Integer.parseInt(args[2]), (bytes, error) -> {
@@ -83,6 +84,20 @@ public final class Harness {
       response.end(payload);
       return;
     }
+    if (request.url === "/short-body") {
+      // Advertise the whole file, send half, then drop the connection: what a
+      // CDN reset or a flaky mobile link looks like to HttpURLConnection.
+      response.writeHead(200, { "content-length": payload.length });
+      response.write(payload.subarray(0, 10));
+      setTimeout(() => response.socket?.destroy(), 50);
+      return;
+    }
+    if (request.url === "/short-length") {
+      // A body shorter than the size the relay advertised for the document.
+      response.writeHead(200, { "content-length": 10 });
+      response.end(payload.subarray(0, 10));
+      return;
+    }
     response.writeHead(404).end();
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -99,6 +114,12 @@ afterAll(async () => {
 
 async function run(url: string, firstOffset: number, firstLimit: number,
   secondOffset: number, secondLimit: number): Promise<string> {
+  return runExpecting(url, 0, firstOffset, firstLimit, secondOffset, secondLimit);
+}
+
+/** Same as run, with the document length the relay advertised for the file. */
+async function runExpecting(url: string, expectedLength: number, firstOffset: number, firstLimit: number,
+  secondOffset: number, secondLimit: number): Promise<string> {
   const result = await exec("java", [
     "-cp", directory,
     "org.telegram.messenger.crossgram_direct.Harness",
@@ -107,6 +128,7 @@ async function run(url: string, firstOffset: number, firstLimit: number,
     String(firstLimit),
     String(secondOffset),
     String(secondLimit),
+    String(expectedLength),
   ]);
   return result.stdout;
 }
@@ -148,5 +170,19 @@ describe("Android direct HTTP client e2e", () => {
     );
     expect(requests).toBe(1);
     expect(rangeHeaders).toEqual(["bytes=5-"]);
+  });
+
+  it("falls back instead of finishing a file when the body ends before its Content-Length", async () => {
+    // Telegram treats a short part as end-of-file, so handing one over
+    // finalizes a half image in the cache for good.
+    expect(await run(`${baseUrl}/short-body`, 0, 8, 8, 9)).toBe(
+      `${payload.subarray(0, 8).toString()}|RELAY:direct HTTP body ended at 10 of ${payload.length} bytes`,
+    );
+  });
+
+  it("falls back when the origin serves fewer bytes than the transfer was opened for", async () => {
+    expect(await runExpecting(`${baseUrl}/short-length`, payload.length, 0, 8, 8, 9)).toBe(
+      `${payload.subarray(0, 8).toString()}|RELAY:direct HTTP body ended at 10 of ${payload.length} bytes`,
+    );
   });
 });
