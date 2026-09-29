@@ -7,6 +7,12 @@ on:
         description: Nagram branch or tag
         required: true
         default: main
+      variant:
+        description: APK ABI (x86_64 runs the emulator checks, arm64 installs on test phones)
+        required: true
+        default: x86_64
+        type: choice
+        options: [x86_64, arm64]
   push:
     branches: [main]
     paths:
@@ -26,12 +32,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-direct-function-e2e-build
+  group: android-direct-function-e2e-build-${{ inputs.variant || 'x86_64' }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      E2E_VARIANT: ${{ inputs.variant || 'x86_64' }}
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v7
@@ -56,14 +64,16 @@ jobs:
       - name: Run patcher tests
         run: yarn check
       - name: Patch and rebuild Nagram debug APK
-        run: bash scripts/ci/build-e2e-nagram.sh "${{ inputs.nagram_ref || 'main' }}"
+        run: bash scripts/ci/build-e2e-nagram.sh "${{ inputs.nagram_ref || 'main' }}" "$E2E_VARIANT"
       - name: Enable KVM for the API 35 emulator
+        if: env.E2E_VARIANT == 'x86_64'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Verify GIF and APNG frames on API 35
+        if: env.E2E_VARIANT == 'x86_64'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -76,7 +86,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: nagram-direct-function-e2e-x86_64
-          path: artifacts/e2e-nagram-x86_64/
+          name: nagram-direct-function-e2e-${{ env.E2E_VARIANT }}
+          path: artifacts/e2e-nagram-${{ env.E2E_VARIANT }}/
           if-no-files-found: error
           retention-days: 14

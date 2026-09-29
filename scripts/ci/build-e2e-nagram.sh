@@ -2,9 +2,11 @@
 set -euo pipefail
 
 REF=${1:-main}
+# x86_64 serves the API 35 emulator; arm64 is for physical test phones.
+VARIANT=${2:-x86_64}
 PATCHER_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SOURCE_ROOT="$PATCHER_ROOT/upstream/nagram-e2e"
-OUTPUT_ROOT="$PATCHER_ROOT/artifacts/e2e-nagram-x86_64"
+OUTPUT_ROOT="$PATCHER_ROOT/artifacts/e2e-nagram-$VARIANT"
 SIGNING_ROOT=$(mktemp -d)
 
 cleanup() {
@@ -22,7 +24,7 @@ cd "$PATCHER_ROOT"
 corepack yarn run patch:source --client nagram --source "$SOURCE_ROOT"
 corepack yarn run e2e:source --client nagram --source "$SOURCE_ROOT"
 corepack yarn run brand --client nagram --source "$SOURCE_ROOT" --brand qq
-corepack yarn run prepare-build --client nagram --source "$SOURCE_ROOT" --variant x86_64
+corepack yarn run prepare-build --client nagram --source "$SOURCE_ROOT" --variant "$VARIANT"
 
 SIGNING_PASSWORD=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
 SIGNING_ALIAS=crossgram-e2e
@@ -42,10 +44,14 @@ export ALIAS_NAME="$SIGNING_ALIAS"
 export ALIAS_PASS="$SIGNING_PASSWORD"
 
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
-export CROSSGRAM_NATIVE_TARGETS=x86_64
+case "$VARIANT" in
+  arm64) export CROSSGRAM_NATIVE_TARGETS=arm64 ;;
+  x86_64) export CROSSGRAM_NATIVE_TARGETS=x86_64 ;;
+  *) echo "Unsupported E2E variant: $VARIANT" >&2; exit 2 ;;
+esac
 # The third_party scripts take the Gradle ABI names instead.
 source "$PATCHER_ROOT/scripts/ci/native-abi-list.sh"
-export ABIS="$(native_abi_list x86_64)"
+export ABIS="$(native_abi_list "$VARIANT")"
 export COMPILE_NATIVE=1
 
 cd "$SOURCE_ROOT"

@@ -106,7 +106,17 @@ describe("build scripts", () => {
     // boundary as a scalar that the native scripts inherit.
     expect(ci).toContain('export ABIS="$NATIVE_ABI_LIST"');
     expect(ci).toContain('NATIVE_ABI_LIST=$(native_abi_list "$VARIANT")');
-    expect(e2e).toContain('export ABIS="$(native_abi_list x86_64)"');
+    expect(e2e).toContain('export ABIS="$(native_abi_list "$VARIANT")"');
+    // The emulator suite keeps x86_64 as its default; physical test phones
+    // need the same debug APK built for arm64 with matching native targets.
+    expect(e2e).toContain('VARIANT=${2:-x86_64}');
+    expect(e2e).toContain('arm64) export CROSSGRAM_NATIVE_TARGETS=arm64 ;;');
+    expect(e2e).toContain('--variant "$VARIANT"');
+    expect(e2e).toContain('OUTPUT_ROOT="$PATCHER_ROOT/artifacts/e2e-nagram-$VARIANT"');
+    expect(e2eWorkflow).toContain('options: [x86_64, arm64]');
+    expect(e2eWorkflow).toContain('build-e2e-nagram.sh "${{ inputs.nagram_ref || \'main\' }}" "$E2E_VARIANT"');
+    // Only x86_64 can boot on the API 35 emulator runner.
+    expect(e2eWorkflow.match(/if: env\.E2E_VARIANT == 'x86_64'/g)).toHaveLength(2);
     expect(ci).not.toMatch(/export ABIS="\$\{ABIS\[/);
     // dav1d is a Meson project and libvpx/FFmpeg need an x86 assembler.
     for (const tool of ["meson", "nasm", "pkg-config"]) {
