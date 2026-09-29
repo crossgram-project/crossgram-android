@@ -85,6 +85,18 @@ describe("Android server E2E source driver", () => {
     expect(patched).toContain("function_called:toggleStickerSet set_id=");
     expect(patched).toContain('"sticker-uninstall".equals(command)');
     expect(patched).toContain("function_called:removeStickerSet set_id=");
+    // The sticker-files probe downloads a whole set through FileLoader and
+    // rejects any file that is shorter than advertised or lacks its format
+    // trailer: the two shapes of a sticker drawn only halfway.
+    expect(patched).toContain('"sticker-files".equals(command)');
+    expect(patched).toContain("private void runCrossgramE2eStickerFiles(TLRPC.TL_messages_stickerSet set, boolean clearCache)");
+    expect(patched).toContain("loader.loadFile(document, set, FileLoader.PRIORITY_NORMAL, 1)");
+    expect(patched).toContain('"size_mismatch"');
+    expect(patched).toContain('"jpeg_no_eoi"');
+    expect(patched).toContain('"png_no_iend"');
+    expect(patched).toContain('"gif_no_trailer"');
+    expect(patched).toContain("sticker_files_done set_id=");
+    expect(patched).toContain("private String crossgramE2eTruncatedImage(java.io.File file)");
     expect(patched).toContain('"sticker-recent-seed".equals(command)');
     expect(patched).toContain('"sticker-recent-send".equals(command)');
     expect(patched).toContain('"raw-animation-file".equals(command)');

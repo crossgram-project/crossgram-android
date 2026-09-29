@@ -114,6 +114,40 @@
             android.util.Log.i("CrossgramE2E", "function_called:loadStickers");
             return true;
         }
+        if ("sticker-files".equals(command)) {
+            // Downloads every document of one installed set through the real
+            // FileLoader and checks each landed file against the advertised
+            // size and a complete image decode, the two ways a sticker cell
+            // ends up drawn only halfway.
+            long setId = intent.getLongExtra("crossgram_e2e_sticker_set_id", 0);
+            boolean clearCache = intent.getBooleanExtra("crossgram_e2e_clear_sticker_cache", true);
+            MediaDataController mediaDataController = MediaDataController.getInstance(currentAccount);
+            mediaDataController.loadStickers(MediaDataController.TYPE_IMAGE, false, true, true);
+            final int[] attempts = { 0 };
+            final Runnable[] start = new Runnable[1];
+            start[0] = () -> {
+                TLRPC.TL_messages_stickerSet set = null;
+                for (TLRPC.TL_messages_stickerSet pack
+                        : mediaDataController.getStickerSets(MediaDataController.TYPE_IMAGE)) {
+                    if (setId == 0 || pack.set.id == setId) {
+                        set = pack;
+                        break;
+                    }
+                }
+                if (set == null) {
+                    if (++attempts[0] >= 60) {
+                        android.util.Log.e("CrossgramE2E", "sticker_files_failed reason=set_missing set_id=" + setId);
+                        return;
+                    }
+                    AndroidUtilities.runOnUIThread(start[0], 250);
+                    return;
+                }
+                runCrossgramE2eStickerFiles(set, clearCache);
+            };
+            AndroidUtilities.runOnUIThread(start[0], 250);
+            android.util.Log.i("CrossgramE2E", "function_called:stickerFiles");
+            return true;
+        }
         if ("sticker-install".equals(command)) {
             long setId = intent.getLongExtra("crossgram_e2e_sticker_set_id", 0);
             if (setId <= 0) {
@@ -1601,4 +1635,94 @@
                     query, dialogId, 0, classGuid, 0, 0, null, null, null, null);
             android.util.Log.i("CrossgramE2E", "function_called:searchMessagesInChat");
             return true;
+    }
+
+    private void runCrossgramE2eStickerFiles(TLRPC.TL_messages_stickerSet set, boolean clearCache) {
+            FileLoader loader = FileLoader.getInstance(currentAccount);
+            java.util.ArrayList<TLRPC.Document> documents = new java.util.ArrayList<>(set.documents);
+            java.util.HashMap<String, TLRPC.Document> pending = new java.util.HashMap<>();
+            for (TLRPC.Document document : documents) {
+                java.io.File file = loader.getPathToAttach(document, true);
+                if (clearCache && file.exists()) {
+                    loader.cancelLoadFile(document, true);
+                    file.delete();
+                }
+                pending.put(FileLoader.getAttachFileName(document), document);
+            }
+            final int total = pending.size();
+            final int[] counts = { 0, 0, 0 };
+            final long startedAt = android.os.SystemClock.elapsedRealtime();
+            NotificationCenter.NotificationCenterDelegate observer = new NotificationCenter.NotificationCenterDelegate() {
+                @Override
+                public void didReceivedNotification(int id, int account, Object... args) {
+                    if (account != currentAccount) return;
+                    TLRPC.Document document = pending.remove((String) args[0]);
+                    if (document == null) return;
+                    if (id == NotificationCenter.fileLoaded) {
+                        java.io.File file = (java.io.File) args[1];
+                        long bytes = file.length();
+                        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+                        bounds.inJustDecodeBounds = true;
+                        android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+                        String defect = document.size > 0 && bytes != document.size
+                                ? "size_mismatch"
+                                : bounds.outWidth <= 0 ? "undecodable" : crossgramE2eTruncatedImage(file);
+                        if (defect == null) {
+                            counts[0]++;
+                        } else {
+                            counts[1]++;
+                            android.util.Log.e("CrossgramE2E", "sticker_file_bad reason=" + defect
+                                    + " document_id=" + document.id + " mime=" + document.mime_type
+                                    + " bytes=" + bytes + " expected=" + document.size
+                                    + " transport=" + org.telegram.messenger.crossgram_direct.CrossgramDirectDownload
+                                            .getReportedTransport(FileLoader.getAttachFileName(document)));
+                        }
+                    } else {
+                        counts[2]++;
+                        android.util.Log.e("CrossgramE2E", "sticker_file_bad reason=load_failed"
+                                + " document_id=" + document.id + " state=" + args[1]);
+                    }
+                    if (pending.isEmpty()) finish();
+                }
+
+                private void finish() {
+                    NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.fileLoaded);
+                    NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.fileLoadFailed);
+                    android.util.Log.i("CrossgramE2E", "sticker_files_done set_id=" + set.set.id
+                            + " total=" + total + " ok=" + counts[0] + " bad=" + counts[1]
+                            + " failed=" + counts[2]
+                            + " duration_ms=" + (android.os.SystemClock.elapsedRealtime() - startedAt));
+                }
+            };
+            NotificationCenter.getInstance(currentAccount).addObserver(observer, NotificationCenter.fileLoaded);
+            NotificationCenter.getInstance(currentAccount).addObserver(observer, NotificationCenter.fileLoadFailed);
+            android.util.Log.i("CrossgramE2E", "sticker_files_started set_id=" + set.set.id + " total=" + total);
+            for (TLRPC.Document document : documents) {
+                loader.loadFile(document, set, FileLoader.PRIORITY_NORMAL, 1);
+            }
+    }
+
+    /** Null when a JPEG/PNG/GIF file carries its format trailer, else the defect. */
+    private String crossgramE2eTruncatedImage(java.io.File file) {
+            try (java.io.RandomAccessFile input = new java.io.RandomAccessFile(file, "r")) {
+                long length = input.length();
+                if (length < 12) return "too_short";
+                byte[] head = new byte[4];
+                input.readFully(head);
+                byte[] tail = new byte[12];
+                input.seek(length - tail.length);
+                input.readFully(tail);
+                if ((head[0] & 0xff) == 0xff && (head[1] & 0xff) == 0xd8) {
+                    return (tail[10] & 0xff) == 0xff && (tail[11] & 0xff) == 0xd9 ? null : "jpeg_no_eoi";
+                }
+                if ((head[0] & 0xff) == 0x89 && head[1] == 'P' && head[2] == 'N' && head[3] == 'G') {
+                    return tail[4] == 'I' && tail[5] == 'E' && tail[6] == 'N' && tail[7] == 'D' ? null : "png_no_iend";
+                }
+                if (head[0] == 'G' && head[1] == 'I' && head[2] == 'F') {
+                    return tail[11] == 0x3b ? null : "gif_no_trailer";
+                }
+                return null;
+            } catch (java.io.IOException error) {
+                return "unreadable";
+            }
     }
