@@ -7,6 +7,34 @@ import type { Upstream } from "../../src/upstreams.js";
 
 const featureRoot = path.dirname(fileURLToPath(import.meta.url));
 const browserFile = "TMessagesProj/src/main/java/org/telegram/messenger/browser/Browser.java";
+const controllerFile = "TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java";
+
+/**
+ * A transcript chat is a history-only peer: the relay answers
+ * `messages.getPeerDialogs` for it with the chat entity but no dialog, so
+ * clients never list it.  Android opens a chat around the anchored message by
+ * asking for its dialog first and only loads history from that dialog's top
+ * message; with no dialog the history request is never sent and the
+ * transcript stays on skeleton placeholders.  Skip that prefetch for the
+ * transcript chats the client opened, so history loads straight around the
+ * anchor like any peer whose dialog is already known.
+ */
+export function patchMessagesController(initial: string): string {
+  let source = addJavaImport(
+    initial,
+    "org.telegram.messenger.crossgram_merged.CrossgramMergedForward",
+    controllerFile,
+  );
+  source = replaceRegexOnce(
+    source,
+    /(^[ \t]*if \()((?:!ChatObject\.isMonoForum\(chat\) && )?loadDialog && \(load_type == LOAD_AROUND_MESSAGE \|\| load_type == LOAD_FROM_UNREAD\) && last_message_id == 0)(\) \{[ \t]*$)/m,
+    "$1$2 && !CrossgramMergedForward.isTranscriptDialog(dialogId)$3",
+    "!CrossgramMergedForward.isTranscriptDialog(dialogId)",
+    controllerFile,
+    "load transcript history without waiting for a dialog the relay never lists",
+  );
+  return source;
+}
 
 export function patchBrowser(initial: string): string {
   let source = addJavaImport(
@@ -40,6 +68,10 @@ export async function applyMergedForward(root: string, _upstream: Upstream): Pro
   const browserTarget = path.join(root, browserFile);
   if (await writeUtf8IfChanged(browserTarget, patchBrowser(await readUtf8(browserTarget)))) {
     changedFiles.push(browserFile);
+  }
+  const controllerTarget = path.join(root, controllerFile);
+  if (await writeUtf8IfChanged(controllerTarget, patchMessagesController(await readUtf8(controllerTarget)))) {
+    changedFiles.push(controllerFile);
   }
   return changedFiles;
 }

@@ -25,11 +25,30 @@ public final class CrossgramMergedForward {
 
     private CrossgramMergedForward() {}
 
+    /**
+     * Synthetic transcript chats this client opened.  The relay answers them
+     * as history-only peers without a dialog entry, so the dialog prefetch
+     * MessagesController runs before an anchored history load has nothing
+     * to continue with and must be skipped for them.
+     */
+    private static final java.util.Set<Long> TRANSCRIPT_CHATS =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    /** Whether a dialog id addresses a merged-forward transcript chat. */
+    public static boolean isTranscriptDialog(long dialogId) {
+        return dialogId < 0 && TRANSCRIPT_CHATS.contains(-dialogId);
+    }
+
+    static void markTranscriptChat(long chatId) {
+        if (chatId > 0) TRANSCRIPT_CHATS.add(chatId);
+    }
+
     public static boolean openUrl(Context context, Uri uri) {
         final LinkTarget target = linkTarget(uri == null ? null : uri.toString());
         if (context == null || target == null) return false;
         final int account = UserConfig.selectedAccount;
         final MessagesController controller = MessagesController.getInstance(account);
+        markTranscriptChat(target.chatId);
         if (controller.getChat(target.chatId) != null) {
             openChat(controller, target);
             return true;
