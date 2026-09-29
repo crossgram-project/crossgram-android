@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   patchConnectionsJavaSource,
   patchCustomDatacenterRoutingSource,
+  patchDatacenterPortSource,
   patchLoginIconSource,
 } from "../features/server-switch/patch.js";
 
@@ -188,5 +189,66 @@ void ConnectionsManager::applyDatacenterAddress(uint32_t datacenterId, std::stri
       patched.indexOf("resetAddressAndPortNum()"),
     );
     expect(patchCustomDatacenterRoutingSource(patched, managerFile)).toBe(patched);
+  });
+
+  it("keeps the configured port of a custom server instead of Telegram's default ports", () => {
+    const datacenterFile = "TMessagesProj/jni/tgnet/Datacenter.cpp";
+    const source = `int32_t Datacenter::getCurrentPort(uint32_t flags) {
+    TcpAddress *address = &((*addresses) [currentAddressNum]);
+    int32_t port;
+    if (!address->secret.empty()) {
+        port = -1;
+    } else {
+        port = defaultPorts[currentPortNum];
+    }
+    if (port == -1) {
+        return address->port;
+    }
+    return port;
+}
+
+bool Datacenter::isCustomPort(uint32_t flags) {
+    uint32_t currentPortNum;
+    return defaultPorts[currentPortNum] != -1;
+}`;
+    const patched = patchDatacenterPortSource(source, datacenterFile);
+    // With a custom server the port slot resolves to -1, which makes the
+    // existing branch below return the address's own configured port.
+    expect(patched).toContain(
+      "port = ConnectionsManager::getInstance(instanceNum).hasCustomServer()\n                ? -1 : defaultPorts[currentPortNum];",
+    );
+    expect(patched).toContain("return address->port;");
+    expect(patched).toContain(
+      "return !ConnectionsManager::getInstance(instanceNum).hasCustomServer()\n            && defaultPorts[currentPortNum] != -1;",
+    );
+    expect(patchDatacenterPortSource(patched, datacenterFile)).toBe(patched);
+    expect(() => patchDatacenterPortSource("int32_t Datacenter::getCurrentPort() {}", datacenterFile))
+      .toThrow(/expected one semantic match, found 0/);
+  });
+
+  it("patches the port selection of every upstream it builds", async () => {
+    const { existsSync } = await import("node:fs");
+    const datacenterFile = "TMessagesProj/jni/tgnet/Datacenter.cpp";
+    for (const relative of [
+      "upstream-check/nagram", "upstream-check/telegram", "upstream-check/nnngram",
+      "upstream-check/nullgram", "mercurygram", "forkgram",
+    ]) {
+      const file = path.resolve("..", "work", "references", relative, datacenterFile);
+      if (!existsSync(file)) continue;
+      const patched = patchDatacenterPortSource(await readFile(file, "utf8"), datacenterFile);
+      expect(patched.match(/hasCustomServer\(\)/g), relative).toHaveLength(2);
+    }
+  });
+
+  it("defines the custom server predicate once for a fresh and an already-patched manager", async () => {
+    const methods = await readFile(path.join(root, "native/manager-methods.cpp"), "utf8");
+    // The predicate is inserted by its own idempotent step so trees patched
+    // before it existed gain it too; the template must not define it again.
+    expect(methods).not.toContain("hasCustomServer");
+    const patch = await readFile(path.resolve("features/server-switch/patch.ts"), "utf8");
+    expect(patch).toContain('"bool ConnectionsManager::hasCustomServer() const"');
+    expect(patch).toContain('"bool hasCustomServer() const;"');
+    expect(patch.indexOf("await patchDatacenter(root, changedFiles);"))
+      .toBeGreaterThan(patch.indexOf("await patchManagerCpp(root, changedFiles);"));
   });
 });

@@ -165,6 +165,14 @@ async function patchManagerHeader(root: string, changed: string[]): Promise<void
     }
     source = replaceRegexOnce(
       source,
+      /(^[ \t]*const\s+std::string\s+&getCustomServerRsaKey\(\)\s+const;[ \t]*$)/m,
+      "$1\n    bool hasCustomServer() const;",
+      "bool hasCustomServer() const;",
+      file,
+      "declare the custom server predicate datacenters consult",
+    );
+    source = replaceRegexOnce(
+      source,
       /(^[ \t]*bool\s+testBackend\s*=\s*false;[ \t]*$)/m,
       "$1\n    bool enableSpecialConfig = true;\n    std::string customServerId;\n    std::string customServerRsaKey;",
       "std::string customServerId;",
@@ -278,8 +286,52 @@ async function patchManagerCpp(root: string, changed: string[]): Promise<void> {
       file,
       "insert ConnectionsManager server configuration methods",
     );
+    source = replaceRegexOnce(
+      source,
+      /(?=ConnectionState\s+ConnectionsManager::getConnectionState\s*\()/,
+      "bool ConnectionsManager::hasCustomServer() const {\n    return !customServerId.empty();\n}\n",
+      "bool ConnectionsManager::hasCustomServer() const",
+      file,
+      "define the custom server predicate datacenters consult",
+    );
     return source;
   });
+}
+
+/**
+ * Telegram's datacenter cycles every address through its "default" ports
+ * (443, 5222) whenever the previous attempt failed, because official DCs
+ * answer on all of them.  A custom server only listens on the port its
+ * configuration names, so each slow first handshake sent the client to
+ * 443/5222 of the relay host - ports a firewall usually drops - and the login
+ * screen kept spinning.  Keep the configured port while a custom server is
+ * selected.
+ */
+export function patchDatacenterPortSource(initial: string, file: string): string {
+  let source = replaceRegexOnce(
+    initial,
+    /^([ \t]*)port = defaultPorts\[currentPortNum\];[ \t]*$/m,
+    "$1port = ConnectionsManager::getInstance(instanceNum).hasCustomServer()\n"
+      + "$1        ? -1 : defaultPorts[currentPortNum];",
+    "ConnectionsManager::getInstance(instanceNum).hasCustomServer()\n",
+    file,
+    "keep the configured port of a custom server",
+  );
+  source = replaceRegexOnce(
+    source,
+    /^([ \t]*)return defaultPorts\[currentPortNum\] != -1;[ \t]*$/m,
+    "$1return !ConnectionsManager::getInstance(instanceNum).hasCustomServer()\n"
+      + "$1        && defaultPorts[currentPortNum] != -1;",
+    "return !ConnectionsManager::getInstance(instanceNum).hasCustomServer()",
+    file,
+    "report a custom server port as the configured one",
+  );
+  return source;
+}
+
+async function patchDatacenter(root: string, changed: string[]): Promise<void> {
+  const file = "TMessagesProj/jni/tgnet/Datacenter.cpp";
+  await editFile(root, file, changed, (initial) => patchDatacenterPortSource(initial, file));
 }
 
 async function patchHandshake(root: string, changed: string[]): Promise<void> {
@@ -435,6 +487,7 @@ export async function applyServerSwitch(root: string, _upstream: Upstream): Prom
   await patchWrapper(root, changedFiles);
   await patchManagerHeader(root, changedFiles);
   await patchManagerCpp(root, changedFiles);
+  await patchDatacenter(root, changedFiles);
   await patchHandshake(root, changedFiles);
 
   await patchLoginIcon(root, changedFiles);
