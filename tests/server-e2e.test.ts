@@ -302,6 +302,18 @@ describe("Android server E2E source driver", () => {
     expect(patchDirectDownloadE2eSource(patched, "CrossgramDirectDownload.java")).toBe(patched);
   });
 
+  it("registers every helper the launch template declares, in template order", async () => {
+    // An unregistered helper is sliced into its predecessor's block and a
+    // re-patch drops it, which only surfaces as a Java compile error in CI.
+    const method = await readFile(path.join(featureRoot, "java-snippets/launch-method.java"), "utf8");
+    const patch = await readFile(path.resolve("features/server-e2e/patch.ts"), "utf8");
+    const declared = [...method.matchAll(/^    private [\w.\[\]<>]+ (\w+)\(/gm)]
+      .map((match) => match[1])
+      .filter((name) => name !== "handleCrossgramE2eIntent");
+    const registered = [...patch.matchAll(/\{ name: "(\w+)", returnType: "[^"]+" \}/g)].map((match) => match[1]);
+    expect(registered).toEqual(declared);
+  });
+
   it("patches the direct-download runtime the feature actually ships", async () => {
     // The fixture above only pins the anchor shape; the real file is what the
     // CI build patches, and an anchor that drifted from it fails the APK build.
