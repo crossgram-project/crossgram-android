@@ -302,6 +302,18 @@ describe("Android server E2E source driver", () => {
     expect(patchDirectDownloadE2eSource(patched, "CrossgramDirectDownload.java")).toBe(patched);
   });
 
+  it("patches the direct-download runtime the feature actually ships", async () => {
+    // The fixture above only pins the anchor shape; the real file is what the
+    // CI build patches, and an anchor that drifted from it fails the APK build.
+    const runtime = await readFile(path.resolve(
+      "features/direct-download/files/java/org/telegram/messenger/crossgram_direct/CrossgramDirectDownload.java",
+    ), "utf8");
+    const patched = patchDirectDownloadE2eSource(runtime, "CrossgramDirectDownload.java");
+    expect(patched).toContain("Thread.sleep(8000);");
+    expect(patched).toContain("http://127.0.0.1:1/crossgram-e2e-force-failure");
+    expect(patchDirectDownloadE2eSource(patched, "CrossgramDirectDownload.java")).toBe(patched);
+  });
+
   it("sends follow-up commands straight to the running LaunchActivity", async () => {
     const runner = await readFile(path.resolve("scripts/e2e/android-server.mjs"), "utf8");
 

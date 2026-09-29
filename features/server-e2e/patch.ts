@@ -222,11 +222,11 @@ $1callback.onResult(new ResolvedUrl(url, expiresAt), null);`,
   );
   source = replaceRegexOnce(
     source,
-    /^([ \t]*)return new Transfer\(new CrossgramDirectHttp\.Transfer\(url\)\);[ \t]*$/m,
+    /^([ \t]*)(return new Transfer\(new CrossgramDirectHttp\.Transfer\(url(?:, expectedLength)?\)\);)[ \t]*$/m,
     `$1if (crossgramE2eForceHttpFailure) {
 $1    Thread.sleep(8000);
 $1}
-$1return new Transfer(new CrossgramDirectHttp.Transfer(url));`,
+$1$2`,
     "Thread.sleep(8000);",
     file,
     "keep the forced-fallback loading state visible for UI screenshots",
