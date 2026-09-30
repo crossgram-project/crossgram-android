@@ -10,6 +10,8 @@ const featureRoot = path.dirname(fileURLToPath(import.meta.url));
 const javaRoot = "TMessagesProj/src/main/java";
 const helperPackage = "org/telegram/messenger/crossgram_update/CrossgramUpdate.java";
 const helperRelative = javaRoot + "/" + helperPackage;
+const policyPackage = "org/telegram/messenger/crossgram_update/CrossgramUpdatePolicy.java";
+const policyRelative = javaRoot + "/" + policyPackage;
 const launchActivityRelative = javaRoot + "/org/telegram/ui/LaunchActivity.java";
 const helperImport = "org.telegram.messenger.crossgram_update.CrossgramUpdate";
 const helperCall = "CrossgramUpdate.check(";
@@ -106,6 +108,8 @@ async function installUpdaterHelper(
     `private static final String CLIENT = "${upstream.id}";`,
   );
   if (await writeUtf8IfChanged(target, branded)) changedFiles.push(helperRelative);
+  const policy = await readUtf8(path.join(featureRoot, "files/java", policyPackage));
+  if (await writeUtf8IfChanged(path.join(root, policyRelative), policy)) changedFiles.push(policyRelative);
 }
 
 export async function applyUpdater(root: string, upstream: Upstream): Promise<string[]> {

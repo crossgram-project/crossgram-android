@@ -176,8 +176,8 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           shopt -s nullglob
-          files=(release-assets/*.apk release-assets/*.txt release-assets/crossgram-update.json)
-          if (( ${#files[@]} == 0 )); then
+          apks=(release-assets/*.apk)
+          if (( ${#apks[@]} == 0 )); then
             echo "No successful artifacts; skipping release."
             exit 0
           fi
@@ -202,36 +202,12 @@ jobs:
           # release feeds: it maps "client + ABI variant + brand" to the exact
           # APK asset of this release, with the hash of the installed APK as the
           # only version signal.
-          python3 - <<'PY'
-          import hashlib, json, os, pathlib, re
+          # GitHub rewrites characters such as "(" in asset names, so the APKs are
+          # renamed to their published spelling before the manifest records the
+          # download URLs; otherwise the clients would be sent to 404s.
+          python3 scripts/ci/release-manifest.py release-assets "$REPOSITORY" "$RUN_NUMBER" release-notes.md
 
-          repository = os.environ["REPOSITORY"]
-          run = int(os.environ["RUN_NUMBER"])
-          tag = f"crossgram-{run}"
-          pattern = re.compile(
-              r"^(?P<client>[a-z]+)-(?P<version>.+)-(?P<variant>arm64|x86_64)"
-              r"-(?P<brand>qq|wechat|wecom|dingtalk|discord)-.+\.apk$"
-          )
-          assets = []
-          for path in sorted(pathlib.Path("release-assets").glob("*.apk")):
-              match = pattern.match(path.name)
-              if not match:
-                  raise SystemExit(f"unexpected release asset name: {path.name}")
-              digest = hashlib.sha256(path.read_bytes()).hexdigest()
-              assets.append({
-                  **match.groupdict(),
-                  "url": f"https://github.com/{repository}/releases/download/{tag}/{path.name}",
-                  "size": path.stat().st_size,
-                  "sha256": digest,
-              })
-          notes = pathlib.Path("release-notes.md").read_text(encoding="utf-8").strip()
-          manifest = {"build": run, "assets": assets, "notes": notes}
-          pathlib.Path("release-assets/crossgram-update.json").write_text(
-              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          print(f"crossgram-update.json: {len(assets)} assets for build {run}")
-          PY
+          files=(release-assets/*.apk release-assets/*.txt release-assets/crossgram-update.json)
 
           gh release upload "$tag" "${files[@]}" --clobber
 

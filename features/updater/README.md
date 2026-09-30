@@ -36,7 +36,8 @@ GitHub Release、官方客户端的 `help.getAppUpdate`），在 Crossgram 的 r
 ```
 
 `build` 是产生该 Release 的 workflow run number，`assets` 由 Release 工作流的 publish
-步骤根据实际产物生成（APK 文件名里已经包含 client/variant/brand 与 sha256）。
+步骤调用 `scripts/ci/release-manifest.py` 根据实际产物生成（APK 文件名里已经包含
+client/variant/brand）。
 
 ## 为什么比对 APK 哈希而不是版本号
 
@@ -46,7 +47,16 @@ nightly 每天都重新构建出内容不同的 APK，但每个 fork 的 version
 
 ## 说明
 
+- `build` 只记录在清单顶层（一个 Release 就是一次 workflow run），运行时从清单读取，
+  不从 asset 条目读取；
+- Release 上传时 GitHub 会把资产名里 `[A-Za-z0-9._-]` 以外的字符改写（Nagram 的
+  `v12.10.1(1248).apk` 会变成 `v12.10.1.1248.apk`），所以 `scripts/ci/release-manifest.py`
+  先把 APK 改名成上传后的样子再写清单，保证 `url` 不会 404；
 - 更新只会装到同一个 applicationId（同一个品牌），不会把 QQ · Cross 换成别的品牌；
-- 安装走 `PackageInstaller` 会话，系统仍会弹出安装确认；会话创建失败时回退到浏览器
-  打开 Release 资产；
-- 清单缺失、网络失败或找不到自己的条目时静默跳过，不影响应用启动。
+- 安装走 `PackageInstaller` 会话，状态通过应用内广播回传：会话进入
+  `STATUS_PENDING_USER_ACTION` 时由我们启动系统给出的安装确认页（不是本应用装的包
+  都会走这一步）；会话创建或安装失败时回退到浏览器打开 Release 资产；
+- 清单缺失、网络失败或找不到自己的条目时静默跳过，不影响应用启动；每次检查的结论
+  以 `crossgram update: build=… decision=…` 写进 FileLog；
+- 运行时的纯逻辑在 `CrossgramUpdatePolicy`，`tests/updater-java.e2e.test.ts` 会对着
+  Android/Telegram 桩编译整个运行时并在 JVM 上跑选择/提示逻辑。

@@ -2,8 +2,10 @@ package org.telegram.messenger.crossgram_update;
 
 import android.app.Activity;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInstaller;
 import android.os.Build;
@@ -15,8 +17,8 @@ import org.telegram.messenger.browser.Browser;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.ui.ActionBar.AlertDialog;
-import org.telegram.ui.LaunchActivity;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -25,6 +27,8 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -58,10 +62,20 @@ public final class CrossgramUpdate {
     private static final String KEY_PROMPTED_BUILD = "prompted_build";
     private static final String KEY_SKIPPED_BUILD = "skipped_build";
 
+    /** Broadcast the installer session reports its status to. */
+    private static final String INSTALL_ACTION = "org.telegram.messenger.crossgram_update.INSTALL_STATUS";
+    /** Context.RECEIVER_NOT_EXPORTED, spelled out for forks that compile against an older SDK. */
+    private static final int RECEIVER_NOT_EXPORTED = 0x4;
+    /** PendingIntent.FLAG_MUTABLE: the installer fills the status extras in. */
+    private static final int FLAG_MUTABLE = 1 << 25;
+    /** AlertDialog.ALERT_TYPE_LOADING, the style with a line progress bar. */
+    private static final int ALERT_TYPE_LOADING = 2;
+
     /** Automatic checks are spaced out; the upstream entry point calls us on every resume. */
     private static final long AUTO_CHECK_INTERVAL_MS = 12L * 60 * 60 * 1000;
     private static final int CONNECT_TIMEOUT_MS = 20 * 1000;
     private static final int READ_TIMEOUT_MS = 30 * 1000;
+    private static final int MANIFEST_ATTEMPTS = 2;
     private static final int BUFFER_SIZE = 128 * 1024;
 
     private static final String TITLE = "\u53d1\u73b0\u65b0\u7248\u672c";
@@ -108,21 +122,22 @@ public final class CrossgramUpdate {
             try {
                 final JSONObject manifest = fetchManifest(MANIFEST_URL);
                 prefs.edit().putLong(KEY_CHECKED_AT, System.currentTimeMillis()).apply();
-                final JSONObject entry = matchEntry(context, manifest);
-                final String installed = installedApkHash(context, prefs);
-                if (entry == null || (installed != null && installed.equalsIgnoreCase(entry.optString("sha256")))) {
-                    if (force) showAlert(activity, TITLE_UP_TO_DATE, UP_TO_DATE);
-                    return;
+                // Every asset of a release comes from the same workflow run, so the
+                // build number is recorded once, on the manifest.
+                final int build = manifest.optInt("build");
+                final CrossgramUpdatePolicy.Asset entry = CrossgramUpdatePolicy.select(assets(manifest), CLIENT,
+                        CrossgramUpdatePolicy.variant(Build.SUPPORTED_ABIS),
+                        CrossgramUpdatePolicy.brand(context.getPackageName(), BRAND_MARKER));
+                final String installed = entry == null ? null : installedApkHash(context, prefs);
+                final CrossgramUpdatePolicy.Decision decision = CrossgramUpdatePolicy.decide(entry, build, installed,
+                        force, prefs.getInt(KEY_PROMPTED_BUILD, 0), prefs.getInt(KEY_SKIPPED_BUILD, 0));
+                FileLog.d("crossgram update: build=" + build + " client=" + CLIENT
+                        + " matched=" + (entry != null) + " decision=" + decision);
+                if (decision == CrossgramUpdatePolicy.Decision.OFFER) {
+                    offer(activity, prefs, build, entry, findAsset(manifest, entry), manifest.optString("notes"));
+                } else if (decision == CrossgramUpdatePolicy.Decision.UP_TO_DATE && force) {
+                    showAlert(activity, TITLE_UP_TO_DATE, UP_TO_DATE);
                 }
-                final int build = entry.optInt("build");
-                if (!force
-                        && (build == prefs.getInt(KEY_PROMPTED_BUILD, 0)
-                            || build == prefs.getInt(KEY_SKIPPED_BUILD, 0))) {
-                    return;
-                }
-                prefs.edit().putInt(KEY_PROMPTED_BUILD, build).apply();
-                offer(activity, prefs, entry, onDone);
-                return;
             } catch (Exception error) {
                 FileLog.e(error);
                 if (force) showAlert(activity, CHECK_FAILED, error.toString());
@@ -133,42 +148,29 @@ public final class CrossgramUpdate {
         }, "crossgram-update-check").start();
     }
 
-    /** The release manifest entry that describes this exact build. */
-    private static JSONObject matchEntry(Context context, JSONObject manifest) {
+    private static List<CrossgramUpdatePolicy.Asset> assets(JSONObject manifest) {
+        final List<CrossgramUpdatePolicy.Asset> result = new ArrayList<>();
         final JSONArray assets = manifest.optJSONArray("assets");
-        if (assets == null) return null;
-        final String variant = variant();
-        final String brand = brand(context);
+        if (assets == null) return result;
         for (int index = 0; index < assets.length(); index++) {
             final JSONObject asset = assets.optJSONObject(index);
-            if (asset == null || !CLIENT.equals(asset.optString("client"))
-                    || !variant.equals(asset.optString("variant"))
-                    || !brand.equals(asset.optString("brand"))) {
-                continue;
+            if (asset == null) continue;
+            result.add(new CrossgramUpdatePolicy.Asset(asset.optString("client"), asset.optString("variant"),
+                    asset.optString("brand"), asset.optString("url"), asset.optString("sha256")));
+        }
+        return result;
+    }
+
+    /** The raw manifest object of the selected asset, for the fields the policy does not need. */
+    private static JSONObject findAsset(JSONObject manifest, CrossgramUpdatePolicy.Asset entry) {
+        final JSONArray assets = manifest.optJSONArray("assets");
+        if (assets != null) {
+            for (int index = 0; index < assets.length(); index++) {
+                final JSONObject asset = assets.optJSONObject(index);
+                if (asset != null && entry.url.equals(asset.optString("url"))) return asset;
             }
-            if (asset.optString("url").isEmpty() || asset.optString("sha256").isEmpty()) continue;
-            return asset;
         }
-        return null;
-    }
-
-    /** The release variant that matches the ABI this installation runs on. */
-    private static String variant() {
-        for (String abi : Build.SUPPORTED_ABIS) {
-            if (abi == null) continue;
-            if (abi.startsWith("arm64")) return "arm64";
-            if (abi.startsWith("x86_64")) return "x86_64";
-            if (abi.startsWith("armeabi")) return "arm";
-            if (abi.startsWith("x86")) return "x86";
-        }
-        return "arm64";
-    }
-
-    /** The brand suffix the branding patch appended to the application id. */
-    private static String brand(Context context) {
-        final String packageName = context.getPackageName();
-        final int marker = packageName.lastIndexOf(BRAND_MARKER);
-        return marker < 0 ? "" : packageName.substring(marker + BRAND_MARKER.length());
+        return new JSONObject();
     }
 
     /** SHA-256 of the installed APK, cached until that file changes. */
@@ -187,48 +189,55 @@ public final class CrossgramUpdate {
         }
     }
 
-    private static void offer(Activity activity, SharedPreferences prefs, JSONObject entry, Runnable onDone) {
-        if (activity == null || activity.isFinishing()) return;
-        final int build = entry.optInt("build");
-        final String version = entry.optString("version");
-        final long size = entry.optLong("size");
-        final String notes = entry.optString("notes");
+    private static void offer(Activity activity, SharedPreferences prefs, int build,
+                              CrossgramUpdatePolicy.Asset entry, JSONObject raw, String notes) {
+        final String version = raw.optString("version");
+        final long size = raw.optLong("size");
         final StringBuilder message = new StringBuilder();
         message.append("#").append(build);
         if (!version.isEmpty()) message.append(SEPARATOR).append(version);
         if (size > 0) message.append(SEPARATOR).append(formatSize(size));
-        if (!notes.isEmpty()) message.append("\n\n").append(notes);
+        if (notes != null && !notes.isEmpty()) message.append("\n\n").append(notes);
         AndroidUtilities.runOnUIThread(() -> {
+            if (activity == null || activity.isFinishing()) return;
             try {
                 new AlertDialog.Builder(activity)
                         .setTitle(TITLE)
                         .setMessage(message.toString())
-                        .setPositiveButton(DOWNLOAD_AND_INSTALL, (dialog, which) -> download(activity, entry, onDone))
+                        .setPositiveButton(DOWNLOAD_AND_INSTALL, (dialog, which) ->
+                                download(activity, build, entry.url, entry.sha256, size))
                         .setNegativeButton(LATER, null)
                         .setNeutralButton(SKIP_THIS_BUILD, (dialog, which) ->
                                 prefs.edit().putInt(KEY_SKIPPED_BUILD, build).apply())
                         .show();
+                // Only a dialog that was actually shown counts as offered.
+                prefs.edit().putInt(KEY_PROMPTED_BUILD, build).apply();
             } catch (Exception error) {
                 FileLog.e(error);
             }
         });
     }
 
-    private static void download(Activity activity, JSONObject entry, Runnable onDone) {
+    private static void download(Activity activity, int build, String url, String expected, long size) {
         final Context context = ApplicationLoader.applicationContext;
         if (context == null || activity == null || activity.isFinishing()) return;
         final File directory = new File(context.getFilesDir(), "crossgram-update");
         //noinspection ResultOfMethodCallIgnored
         directory.mkdirs();
-        final File target = new File(directory, "crossgram-" + entry.optInt("build") + ".apk");
+        final File[] stale = directory.listFiles();
+        if (stale != null) {
+            //noinspection ResultOfMethodCallIgnored
+            for (File file : stale) file.delete();
+        }
+        final File target = new File(directory, "crossgram-" + build + ".apk");
         cancelled = false;
         final AlertDialog progress;
         try {
-            progress = new AlertDialog.Builder(activity)
+            progress = new AlertDialog.Builder(activity, ALERT_TYPE_LOADING)
                     .setTitle(DOWNLOADING)
                     .setNegativeButton(CANCEL, (dialog, which) -> cancelDownload())
-                    .setOnCancelListener(dialog -> cancelDownload())
-                    .show();
+                    .create();
+            progress.show();
             progress.setProgress(0);
         } catch (Exception error) {
             FileLog.e(error);
@@ -236,17 +245,16 @@ public final class CrossgramUpdate {
         }
         new Thread(() -> {
             try {
-                transfer(entry.optString("url"), target, entry.optLong("size"), percent ->
+                transfer(url, target, size, percent ->
                         AndroidUtilities.runOnUIThread(() -> {
                             if (progress.isShowing()) progress.setProgress(percent);
                         }));
-                final String expected = entry.optString("sha256");
                 if (!expected.equalsIgnoreCase(sha256(target))) {
                     throw new IllegalStateException("checksum mismatch");
                 }
                 AndroidUtilities.runOnUIThread(() -> {
                     if (progress.isShowing()) progress.dismiss();
-                    install(activity, target, entry.optString("url"));
+                    install(activity, target, url);
                 });
             } catch (Exception error) {
                 FileLog.e(error);
@@ -254,22 +262,18 @@ public final class CrossgramUpdate {
                 target.delete();
                 AndroidUtilities.runOnUIThread(() -> {
                     if (progress.isShowing()) progress.dismiss();
-                    showAlert(activity, DOWNLOAD_FAILED, error.toString());
+                    if (!cancelled) showAlert(activity, DOWNLOAD_FAILED, error.toString());
                 });
             }
         }, "crossgram-update-download").start();
     }
 
     private static void transfer(String url, File target, long expectedSize, Progress progress) throws Exception {
-        final HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        final HttpURLConnection connection = open(url);
         download = connection;
         try {
-            connection.setInstanceFollowRedirects(true);
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-            connection.setReadTimeout(READ_TIMEOUT_MS);
-            connection.connect();
             final int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) throw new IllegalStateException("HTTP " + status);
+            if (status < 200 || status >= 300) throw new IllegalStateException("HTTP " + status + " " + url);
             final long total = expectedSize > 0 ? expectedSize : connection.getContentLength();
             try (InputStream input = connection.getInputStream();
                  OutputStream output = new FileOutputStream(target)) {
@@ -282,7 +286,7 @@ public final class CrossgramUpdate {
                     output.write(buffer, 0, read);
                     written += read;
                     if (progress != null && total > 0) {
-                        final int percent = (int) (written * 100 / total);
+                        final int percent = (int) Math.min(100, written * 100 / total);
                         if (percent != reported) {
                             reported = percent;
                             progress.update(percent);
@@ -306,9 +310,11 @@ public final class CrossgramUpdate {
     }
 
     /**
-     * Installs the downloaded APK. Android always asks the user to confirm;
-     * when the session cannot even be created (missing permission, MIUI, ...)
-     * the release asset is opened in the browser instead.
+     * Installs the downloaded APK through a PackageInstaller session. Unless
+     * this app is the installer of record, the session parks in
+     * STATUS_PENDING_USER_ACTION and hands back the system confirmation screen,
+     * which has to be started from here; a failed session falls back to
+     * opening the release asset in the browser.
      */
     private static void install(Activity activity, File apk, String url) {
         final Context context = ApplicationLoader.applicationContext;
@@ -323,10 +329,13 @@ public final class CrossgramUpdate {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
             }
-            final PendingIntent pending = PendingIntent.getActivity(context, 0,
-                    new Intent(context, LaunchActivity.class),
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            try (PackageInstaller.Session session = installer.openSession(installer.createSession(params))) {
+            final int sessionId = installer.createSession(params);
+            registerStatusReceiver(context, activity, url);
+            final Intent status = new Intent(INSTALL_ACTION).setPackage(context.getPackageName());
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags |= FLAG_MUTABLE;
+            final PendingIntent pending = PendingIntent.getBroadcast(context, sessionId, status, flags);
+            try (PackageInstaller.Session session = installer.openSession(sessionId)) {
                 try (OutputStream output = session.openWrite(apk.getName(), 0, apk.length());
                      InputStream input = new FileInputStream(apk)) {
                     final byte[] buffer = new byte[BUFFER_SIZE];
@@ -343,9 +352,55 @@ public final class CrossgramUpdate {
         }
     }
 
+    private static void registerStatusReceiver(Context context, Activity activity, String url) {
+        final BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent intent) {
+                final int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS,
+                        PackageInstaller.STATUS_FAILURE_INVALID);
+                FileLog.d("crossgram update: install status=" + status + " "
+                        + intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE));
+                if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                    final Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+                    if (confirm != null) {
+                        confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        try {
+                            (activity != null && !activity.isFinishing() ? activity : c).startActivity(confirm);
+                        } catch (Exception error) {
+                            FileLog.e(error);
+                            unregister(c, this);
+                            Browser.openUrl(activity, url);
+                        }
+                    }
+                    // The session reports again once the user has decided.
+                    return;
+                }
+                unregister(c, this);
+                if (status != PackageInstaller.STATUS_SUCCESS && status != PackageInstaller.STATUS_FAILURE_ABORTED) {
+                    showAlert(activity, INSTALL_FAILED, "status " + status + ": "
+                            + intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE));
+                    Browser.openUrl(activity, url);
+                }
+            }
+        };
+        final IntentFilter filter = new IntentFilter(INSTALL_ACTION);
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED);
+        } else {
+            context.registerReceiver(receiver, filter);
+        }
+    }
+
+    private static void unregister(Context context, BroadcastReceiver receiver) {
+        try {
+            context.unregisterReceiver(receiver);
+        } catch (Exception ignored) {
+        }
+    }
+
     private static void showAlert(Activity activity, String title, String text) {
-        if (activity == null || activity.isFinishing()) return;
         AndroidUtilities.runOnUIThread(() -> {
+            if (activity == null || activity.isFinishing()) return;
             try {
                 new AlertDialog.Builder(activity)
                         .setTitle(title)
@@ -358,25 +413,40 @@ public final class CrossgramUpdate {
         });
     }
 
-    private static JSONObject fetchManifest(String url) throws Exception {
+    private static HttpURLConnection open(String url) throws Exception {
         final HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setInstanceFollowRedirects(true);
+        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        connection.setReadTimeout(READ_TIMEOUT_MS);
+        connection.connect();
+        return connection;
+    }
+
+    private static JSONObject fetchManifest(String url) throws Exception {
+        Exception last = null;
+        for (int attempt = 0; attempt < MANIFEST_ATTEMPTS; attempt++) {
+            try {
+                return new JSONObject(readText(url));
+            } catch (Exception error) {
+                last = error;
+            }
+        }
+        throw last;
+    }
+
+    private static String readText(String url) throws Exception {
+        final HttpURLConnection connection = open(url);
         try {
-            connection.setInstanceFollowRedirects(true);
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-            connection.setReadTimeout(READ_TIMEOUT_MS);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.connect();
             final int status = connection.getResponseCode();
             if (status < 200 || status >= 300) throw new IllegalStateException("HTTP " + status);
-            final StringBuilder body = new StringBuilder();
+            final ByteArrayOutputStream body = new ByteArrayOutputStream();
             try (InputStream input = connection.getInputStream()) {
                 final byte[] buffer = new byte[BUFFER_SIZE];
                 int read;
-                while ((read = input.read(buffer)) >= 0) {
-                    body.append(new String(buffer, 0, read, "UTF-8"));
-                }
+                while ((read = input.read(buffer)) >= 0) body.write(buffer, 0, read);
             }
-            return new JSONObject(body.toString());
+            // Decode once: a chunk boundary may split a multi-byte character of the notes.
+            return new String(body.toByteArray(), "UTF-8");
         } finally {
             connection.disconnect();
         }
