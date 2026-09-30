@@ -82,6 +82,50 @@ public final class CrossgramDirectDownload {
         return CrossgramBridgeFileReference.supports(reference);
     }
 
+    /**
+     * A bridge file that never tries direct HTTP (the photo `m` preview). The
+     * operation reports relay for it so the message cell still shows a badge.
+     */
+    public static boolean isRelayOnlyBridgeFile(TLRPC.InputFileLocation location) {
+        return (location instanceof TLRPC.TL_inputDocumentFileLocation
+                || location instanceof TLRPC.TL_inputPhotoFileLocation)
+                && supportsFileReference(location.file_reference)
+                && !supports(location);
+    }
+
+    /**
+     * Whether the advertised size of this bridge file is only an upper bound
+     * (the photo `m` preview; see CrossgramBridgeFileReference).
+     *
+     * Telegram's sequential assembler only ends a sized file once that count is
+     * reached: the relay's short final part leaves every later chunk parked on
+     * an offset that never arrives, and the stuck operation keeps its
+     * download-queue slot until the app restarts.
+     */
+    public static boolean hasUpperBoundSize(TLRPC.InputFileLocation location) {
+        return location != null && CrossgramBridgeFileReference.hasUpperBoundSize(
+                location.file_reference, location instanceof TLRPC.TL_inputPhotoFileLocation, location.thumb_size);
+    }
+
+    /** True when a relay part shorter than requested is the end of an upper-bound-sized file. */
+    public static boolean endsAtShortPart(TLRPC.InputFileLocation location, long received, long requested) {
+        return location != null && CrossgramBridgeFileReference.endsAtShortPart(
+                location.file_reference, location instanceof TLRPC.TL_inputPhotoFileLocation, location.thumb_size,
+                received, requested);
+    }
+
+    /** Keeps a finished upper-bound-sized preview instead of deleting it as a size mismatch. */
+    public static boolean acceptsShorterFinalFile(TLRPC.InputFileLocation location, long advertised, long actual) {
+        return location != null && CrossgramBridgeFileReference.acceptsShorterFile(
+                location.file_reference, location instanceof TLRPC.TL_inputPhotoFileLocation, location.thumb_size,
+                advertised, actual);
+    }
+
+    public static void reportShortEnd(String fileName, long downloaded, long advertised) {
+        FileLog.d("crossgram_download_short_end file=" + fileName
+                + " bytes=" + downloaded + " advertised=" + advertised);
+    }
+
     /** Clears a stale result and exposes URL resolution to the message-cell indicator. */
     public static void begin(String fileName) {
         setReportedTransport(fileName, TRANSPORT_RESOLVING);

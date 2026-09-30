@@ -252,6 +252,67 @@ $1`,
     operationFile,
     "expose the selected download transport",
   );
+  return patchUpperBoundSizedFiles(source);
+}
+
+/**
+ * The relay publishes the bridge photo `m` preview with the original's byte
+ * count because QQ reports zero bytes for most native previews. Upstream only
+ * ends a sized file when that count is reached, so the relay's short final
+ * part parks every later chunk forever and the operation keeps its queue slot
+ * until the app restarts. End such a file at its short part, and keep the
+ * finished (shorter) preview instead of deleting it as a size mismatch.
+ */
+function patchUpperBoundSizedFiles(initial: string): string {
+  let source = replaceRegexOnce(
+    initial,
+    /(^[ \t]*private boolean crossgramDirectDisabled;[ \t]*$)/m,
+    `$1
+    private boolean crossgramRelayOnlyReported;`,
+    "private boolean crossgramRelayOnlyReported;",
+    operationFile,
+    "remember that a relay-only bridge file published its transport",
+  );
+  source = editDeclarationBody(
+    source,
+    /protected\s+void\s+startDownloadRequest\s*\(/,
+    operationFile,
+    "FileLoadOperation.startDownloadRequest",
+    (body) => replaceRegexOnce(
+      body,
+      /(?=^[ \t]*if \(!crossgramDirectDisabled && CrossgramDirectDownload\.supports\(location\))/m,
+      `        if (!crossgramRelayOnlyReported && CrossgramDirectDownload.isRelayOnlyBridgeFile(location)) {
+            crossgramRelayOnlyReported = true;
+            CrossgramDirectDownload.report(fileName, CrossgramDirectDownload.TRANSPORT_RELAY, "relay_only_size");
+        }
+`,
+      "CrossgramDirectDownload.isRelayOnlyBridgeFile(location)",
+      operationFile,
+      "show the relay badge for bridge sizes that never go direct",
+    ),
+  );
+  source = replaceRegexOnce(
+    source,
+    /(^[ \t]*)(if \(BuildVars\.LOGS_ENABLED && FULL_LOGS\) \{\r?\n[ \t]*FileLog\.d\(cacheFileFinal\.getName\(\) \+ " downloadedBytes=")/m,
+    `$1if (!finishedDownloading && totalBytesCount > 0 && notLoadedBytesRanges == null
+$1        && CrossgramDirectDownload.endsAtShortPart(location, currentBytesSize, requestInfo.chunkSize)) {
+$1    CrossgramDirectDownload.reportShortEnd(fileName, downloadedBytes, totalBytesCount);
+$1    finishedDownloading = true;
+$1    finishPreload = false;
+$1}
+$1$2`,
+    "CrossgramDirectDownload.endsAtShortPart(location, currentBytesSize, requestInfo.chunkSize)",
+    operationFile,
+    "end an upper-bound-sized bridge file at its short final part",
+  );
+  source = replaceRegexOnce(
+    source,
+    /totalBytesCount != cacheFileFinal\.length\(\)\)/,
+    "totalBytesCount != cacheFileFinal.length()\n                && !CrossgramDirectDownload.acceptsShorterFinalFile(location, totalBytesCount, cacheFileFinal.length()))",
+    "CrossgramDirectDownload.acceptsShorterFinalFile(location, totalBytesCount, cacheFileFinal.length())",
+    operationFile,
+    "keep a finished upper-bound-sized bridge preview",
+  );
   return source;
 }
 

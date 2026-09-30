@@ -57,6 +57,33 @@ public class FileLoadOperation {
         ConnectionsManager.getInstance(currentAccount).failNotRunningRequest(token);
     }
 
+    public boolean start() {
+        boolean finalFileExist = cacheFileFinalReady = cacheFileFinal.exists();
+        if (finalFileExist && (parentObject instanceof TLRPC.TL_theme || (totalBytesCount != 0 && !ungzip && totalBytesCount != cacheFileFinal.length())) && !delegate.isLocallyCreatedFile(cacheFileFinal.toString())) {
+            cacheFileFinal.delete();
+        }
+        return true;
+    }
+
+    protected boolean processRequestResult(RequestInfo requestInfo, TLRPC.TL_error error) {
+        int currentBytesSize = bytes.limit();
+        boolean finishedDownloading;
+        boolean finishPreload = false;
+        downloadedBytes += currentBytesSize;
+        if (totalBytesCount > 0) {
+            finishedDownloading = downloadedBytes >= totalBytesCount;
+            if (downloadedBytes < totalBytesCount) {
+                finishPreload = true;
+            }
+        } else {
+            finishedDownloading = currentBytesSize != currentDownloadChunkSize;
+        }
+        if (BuildVars.LOGS_ENABLED && FULL_LOGS) {
+            FileLog.d(cacheFileFinal.getName() + " downloadedBytes=" + downloadedBytes + " total=" + totalBytesCount + " " + finishedDownloading + " " + finishPreload);
+        }
+        return false;
+    }
+
     private void cleanup() {
         closeFiles();
     }
@@ -117,6 +144,43 @@ describe("Android direct-download patch", () => {
     expect(patched).toContain("CrossgramDirectDownload.failNotRunningRequest(currentAccount, token)");
     expect(patched).toContain("CrossgramDirectDownload.close(crossgramDirectTransfer);");
     expect(patchFileLoadOperation(patched)).toBe(patched);
+  });
+
+  it("ends an upper-bound-sized bridge preview at its short part and keeps the finished file", () => {
+    const patched = patchFileLoadOperation(fixture);
+    // The short-part check runs after upstream decides and before the part is
+    // written, so the same part both lands in the file and finalizes it.
+    const shortEnd = patched.indexOf(
+      "CrossgramDirectDownload.endsAtShortPart(location, currentBytesSize, requestInfo.chunkSize)",
+    );
+    expect(shortEnd).toBeGreaterThan(patched.indexOf("finishedDownloading = downloadedBytes >= totalBytesCount;"));
+    expect(shortEnd).toBeLessThan(patched.indexOf('" downloadedBytes="'));
+    expect(patched).toContain(`        if (!finishedDownloading && totalBytesCount > 0 && notLoadedBytesRanges == null
+                && CrossgramDirectDownload.endsAtShortPart(location, currentBytesSize, requestInfo.chunkSize)) {
+            CrossgramDirectDownload.reportShortEnd(fileName, downloadedBytes, totalBytesCount);
+            finishedDownloading = true;
+            finishPreload = false;
+        }`);
+    expect(patched).toContain(
+      "totalBytesCount != cacheFileFinal.length()\n"
+        + "                && !CrossgramDirectDownload.acceptsShorterFinalFile(location, totalBytesCount, cacheFileFinal.length()))",
+    );
+    expect(patchFileLoadOperation(patched)).toBe(patched);
+  });
+
+  it("publishes the relay transport for bridge sizes that never try direct HTTP", () => {
+    const patched = patchFileLoadOperation(fixture);
+    const relayOnly = patched.indexOf("CrossgramDirectDownload.isRelayOnlyBridgeFile(location)");
+    expect(relayOnly).toBeGreaterThan(patched.indexOf("protected void startDownloadRequest"));
+    expect(relayOnly).toBeLessThan(patched.indexOf("CrossgramDirectDownload.supports(location)"));
+    expect(patched).toContain('CrossgramDirectDownload.report(fileName, CrossgramDirectDownload.TRANSPORT_RELAY, "relay_only_size");');
+    expect(patched).toContain("private boolean crossgramRelayOnlyReported;");
+  });
+
+  it("finds the upper-bound anchors in CRLF upstream checkouts", () => {
+    const patched = patchFileLoadOperation(fixture.replaceAll("\n", "\r\n"));
+    expect(patched).toContain("CrossgramDirectDownload.endsAtShortPart(");
+    expect(patched).toContain("CrossgramDirectDownload.acceptsShorterFinalFile(");
   });
 
   it("uses stripped previews while Crossgram photos load and draws a visible transport badge", () => {
@@ -212,6 +276,53 @@ public final class Harness {
     }
   });
 
+  it("treats only the bridge photo preview size as an upper bound", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "crossgram-direct-upper-bound-"));
+    const packageDir = path.join(root, "org/telegram/messenger/crossgram_direct");
+    try {
+      await mkdir(packageDir, { recursive: true });
+      await writeFile(path.join(packageDir, "CrossgramBridgeFileReference.java"), await readFile(path.resolve(
+        "features/direct-download/files/java/org/telegram/messenger/crossgram_direct/CrossgramBridgeFileReference.java",
+      ), "utf8"), "utf8");
+      await writeFile(path.join(packageDir, "Harness.java"), `package org.telegram.messenger.crossgram_direct;
+import java.nio.charset.StandardCharsets;
+public final class Harness {
+  public static void main(String[] args) {
+    for (int i = 0; i < args.length; i += 5) {
+      byte[] reference = args[i].getBytes(StandardCharsets.UTF_8);
+      boolean photo = "photo".equals(args[i + 1]);
+      String thumb = args[i + 2];
+      long first = Long.parseLong(args[i + 3]);
+      long second = Long.parseLong(args[i + 4]);
+      System.out.print(CrossgramBridgeFileReference.endsAtShortPart(reference, photo, thumb, first, second) ? "1" : "0");
+      System.out.print(CrossgramBridgeFileReference.acceptsShorterFile(reference, photo, thumb, second, first) ? "1" : "0");
+      System.out.print(",");
+    }
+  }
+}`, "utf8");
+      await exec("javac", [
+        path.join(packageDir, "CrossgramBridgeFileReference.java"),
+        path.join(packageDir, "Harness.java"),
+      ]);
+      const cases = [
+        // The stuck production preview: 15,208 of a 32 KiB part, advertised as the 661,310-byte original.
+        ["bridge-media:344056", "photo", "m", "15208", "32768"],
+        ["bridge-media:344056", "photo", "m", "0", "32768"],
+        ["bridge-media:344056", "photo", "m", "32768", "32768"],
+        ["bridge-media:344056", "photo", "x", "15208", "32768"],
+        ["bridge-media:344056", "document", "m", "15208", "32768"],
+        ["plain-telegram-reference", "photo", "m", "15208", "32768"],
+      ];
+      const result = await exec("java", ["-cp", root,
+        "org.telegram.messenger.crossgram_direct.Harness", ...cases.flat()]);
+      // An empty part still ends the file (upstream's own EOF), but an empty
+      // file is never kept as a finished preview.
+      expect(result.stdout).toBe("11,10,00,00,00,00,");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("migrates an already-patched direct download buffer to a readable position", () => {
     const previous = patchFileLoadOperation(fixture).replace(
       "                        buffer.position(0);\n",
@@ -294,7 +405,7 @@ public final class Harness {
       "CrossgramDirectDownload.open(resolved.url, totalBytesCount)",
       "CrossgramDirectDownload.open(resolved.url)",
     );
-    expect(blind).not.toContain("totalBytesCount)");
+    expect(blind).not.toContain("CrossgramDirectDownload.open(resolved.url, totalBytesCount)");
     const migrated = patchFileLoadOperation(blind);
     expect(migrated).toContain("CrossgramDirectDownload.open(resolved.url, totalBytesCount)");
     expect(migrated).toBe(current);

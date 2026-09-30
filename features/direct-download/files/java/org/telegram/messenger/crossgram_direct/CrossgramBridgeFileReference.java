@@ -16,6 +16,29 @@ final class CrossgramBridgeFileReference {
 
     private CrossgramBridgeFileReference() {}
 
+    /**
+     * Whether the advertised size of a bridge file is only an upper bound.
+     *
+     * QQ reports zero bytes for many native 720-tier previews and Telegram
+     * rejects a zero-byte PhotoSize, so the relay publishes the photo `m`
+     * preview with the original's byte count. Every other bridge size is exact.
+     */
+    static boolean hasUpperBoundSize(byte[] reference, boolean photo, String thumbSize) {
+        return photo && "m".equals(thumbSize) && supports(reference);
+    }
+
+    /** A part shorter than requested is the real end of an upper-bound-sized file. */
+    static boolean endsAtShortPart(byte[] reference, boolean photo, String thumbSize,
+            long received, long requested) {
+        return received >= 0 && received < requested && hasUpperBoundSize(reference, photo, thumbSize);
+    }
+
+    /** A finished upper-bound-sized file may be shorter than advertised, but never empty. */
+    static boolean acceptsShorterFile(byte[] reference, boolean photo, String thumbSize,
+            long advertised, long actual) {
+        return actual > 0 && actual < advertised && hasUpperBoundSize(reference, photo, thumbSize);
+    }
+
     static boolean supports(byte[] reference) {
         if (reference == null || reference.length == 0) return false;
         final String value;
