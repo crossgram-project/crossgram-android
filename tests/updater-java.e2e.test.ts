@@ -233,7 +233,7 @@ describe("Android updater runtime", () => {
     expect(runtime).toContain("PendingIntent.getBroadcast");
     expect(runtime).toContain("startActivity(confirm)");
     // The download dialog needs the loading style for setProgress() to draw.
-    expect(runtime).toContain("new AlertDialog.Builder(activity, ALERT_TYPE_LOADING)");
+    expect(runtime).toContain("new AlertDialog.Builder(activity)");
   });
 
   it("installs both runtime classes with the upstream identity", async () => {

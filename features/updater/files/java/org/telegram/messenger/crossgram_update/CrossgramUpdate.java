@@ -68,8 +68,6 @@ public final class CrossgramUpdate {
     private static final int RECEIVER_NOT_EXPORTED = 0x4;
     /** PendingIntent.FLAG_MUTABLE: the installer fills the status extras in. */
     private static final int FLAG_MUTABLE = 1 << 25;
-    /** AlertDialog.ALERT_TYPE_LOADING, the style with a line progress bar. */
-    private static final int ALERT_TYPE_LOADING = 2;
 
     /** Automatic checks are spaced out; the upstream entry point calls us on every resume. */
     private static final long AUTO_CHECK_INTERVAL_MS = 12L * 60 * 60 * 1000;
@@ -233,7 +231,7 @@ public final class CrossgramUpdate {
         cancelled = false;
         final AlertDialog progress;
         try {
-            progress = new AlertDialog.Builder(activity, ALERT_TYPE_LOADING)
+            progress = new AlertDialog.Builder(activity)
                     .setTitle(DOWNLOADING)
                     .setNegativeButton(CANCEL, (dialog, which) -> cancelDownload())
                     .create();
