@@ -52,7 +52,11 @@ export function patchFileUploadOperation(initial: string): string {
                 long crossgramFileId = Utilities.random.nextLong();
                 if (CrossgramFastUpload.prepare(currentAccount, uploadingFilePath, crossgramFileId, currentType,
                         result -> {
-                    if (state != 1) return;
+                    if (state != 1) {
+                        FileLog.e("crossgram fast-upload callback dropped, state=" + state
+                                + " path=" + uploadingFilePath);
+                        return;
+                    }
                     if (result != null) {
                         finishCrossgramFastUpload(result);
                     } else {

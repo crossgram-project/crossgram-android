@@ -17,12 +17,16 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Hash-first Crossgram upload probe. A miss or any error falls back to saveFilePart. */
 public final class CrossgramFastUpload {
     private static final int PREPARE_MEDIA_UPLOAD_V3_CONSTRUCTOR = 0xf75adc10;
     private static final int VIDEO_THUMBNAIL_MAX_SIDE = 320;
     private static final int MAX_TARGETS = 512;
+    /** The RPC has no client-side timeout of its own; without this cap a lost
+     * response leaves the upload stuck at 0% forever. */
+    private static final long PROBE_TIMEOUT_MS = 10_000;
     private static final ConcurrentHashMap<String, Target> TARGETS = new ConcurrentHashMap<>();
 
     public interface Callback {
@@ -69,6 +73,8 @@ public final class CrossgramFastUpload {
         TLRPC.InputPeer peer = MessagesController.getInstance(account).getInputPeer(target.dialogId);
         if (peer == null || peer instanceof TLRPC.TL_inputPeerEmpty) return false;
         Utilities.globalQueue.postRunnable(() -> {
+            // Exactly one of {RPC response, timeout, error} may deliver the result.
+            final AtomicBoolean delivered = new AtomicBoolean();
             try {
                 CrossgramFastUploadHash.Result hashes = CrossgramFastUploadHash.compute(file);
                 PrepareMediaUpload request = new PrepareMediaUpload();
@@ -91,14 +97,31 @@ public final class CrossgramFastUpload {
                 request.thumbnail = metadata.thumbnail;
                 request.thumbnailWidth = metadata.thumbnailWidth;
                 request.thumbnailHeight = metadata.thumbnailHeight;
+                FileLog.e("crossgram fast-upload probe sent: " + request.name + " size=" + hashes.size);
                 ConnectionsManager.getInstance(account).sendRequest(request, (response, error) -> {
                     boolean hit = response instanceof TLRPC.TL_boolTrue;
-                    Utilities.stageQueue.postRunnable(() -> callback.onResult(
-                            hit ? new Result(fileId, hashes.size, request.name) : null));
+                    FileLog.e("crossgram fast-upload probe result: hit=" + hit
+                            + (error == null ? "" : " error=" + error.text) + " name=" + request.name);
+                    Utilities.stageQueue.postRunnable(() -> {
+                        if (delivered.compareAndSet(false, true)) {
+                            callback.onResult(hit ? new Result(fileId, hashes.size, request.name) : null);
+                        }
+                    });
                 });
+                Utilities.stageQueue.postRunnable(() -> {
+                    if (delivered.compareAndSet(false, true)) {
+                        FileLog.e("crossgram fast-upload probe TIMEOUT after " + PROBE_TIMEOUT_MS
+                                + "ms, falling back to part upload: " + request.name);
+                        callback.onResult(null);
+                    }
+                }, PROBE_TIMEOUT_MS);
             } catch (Exception error) {
                 FileLog.e(error);
-                Utilities.stageQueue.postRunnable(() -> callback.onResult(null));
+                Utilities.stageQueue.postRunnable(() -> {
+                    if (delivered.compareAndSet(false, true)) {
+                        callback.onResult(null);
+                    }
+                });
             }
         });
         return true;

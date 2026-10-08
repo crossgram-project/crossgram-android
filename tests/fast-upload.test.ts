@@ -186,6 +186,9 @@ public final class Harness {
         "crossgram_upload/CrossgramFastUpload.java"), "utf8");
       expect(runtime).toContain("PREPARE_MEDIA_UPLOAD_V3_CONSTRUCTOR = 0xf75adc10");
       expect(runtime).toContain("request.sha1Checkpoints = hashes.sha1Checkpoints;");
+      expect(runtime).toContain("PROBE_TIMEOUT_MS = 10_000");
+      expect(runtime).toContain("delivered.compareAndSet(false, true)");
+      expect(runtime).toContain("probe TIMEOUT after");
       expect(runtime).toMatch(/writeByteArray\(sha1\);\s+stream\.writeByteArray\(sha1Checkpoints\);\s+stream\.writeByteArray\(file10mMd5\);/);
       expect(runtime).toContain("MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH");
       expect(runtime).toContain("MediaMetadataRetriever.METADATA_KEY_DURATION");
