@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -194,6 +194,46 @@ describe("prepareBuild", () => {
     expect(await readFile(path.join(root, "TMessagesProj/jni/third_party/build_ffmpeg.sh"), "utf8"))
       .toBe(abiDriven);
     expect(await prepareBuild(root, getUpstream("nagram"), "arm64")).toEqual([]);
+  });
+
+  it("accepts Nagram's prebuilt native archives in place of the legacy scripts", async () => {
+    const relative = "TMessagesProj/build.gradle";
+    const root = await fixture(
+      relative,
+      "plugins { id 'com.android.application' }\nandroid { externalNativeBuild { cmake {} } }\n",
+    );
+    // The prebuild tree commits one archive set per ABI and the JNI build links
+    // it directly, so the scripts prepare.ts used to rewrite are simply gone.
+    const files: Record<string, string> = {
+      "TMessagesProj/jni/jni.c": [
+        "jint JNI_OnLoad(JavaVM *vm, void *reserved) {",
+        "    JNIEnv *env = 0;",
+        "    if (verifySign(env) != JNI_OK) {",
+        "        return JNI_ERR;",
+        "    }",
+        "    return JNI_VERSION_1_6;",
+        "}",
+        "",
+      ].join("\n"),
+      "TMessagesProj/jni/prebuild/lib/arm64-v8a/libcrypto.a": "archive",
+      "TMessagesProj/jni/prebuild/lib/x86_64/libcrypto.a": "archive",
+    };
+    for (const [nativeRelative, content] of Object.entries(files)) {
+      const file = path.join(root, nativeRelative);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, content, "utf8");
+    }
+
+    const changed = await prepareBuild(root, getUpstream("nagram"), "arm64");
+    expect(changed).toEqual([relative, "TMessagesProj/jni/jni.c"]);
+    expect(await prepareBuild(root, getUpstream("nagram"), "arm64")).toEqual([]);
+    expect(await readFile(path.join(root, relative), "utf8")).toContain("abiFilters.addAll(['arm64-v8a'])");
+
+    // A variant whose archives are missing has to fail while the layout is
+    // still visible, instead of at the end of a native build.
+    await rm(path.join(root, "TMessagesProj/jni/prebuild/lib/x86_64/libcrypto.a"));
+    await expect(prepareBuild(root, getUpstream("nagram"), "x86_64"))
+      .rejects.toThrow(/prebuild\/lib\/x86_64\/libcrypto\.a: no native library for the x86_64 build/);
   });
 
   it("limits both Mercurygram modules without rewriting its Gradle wrapper", async () => {

@@ -213,16 +213,30 @@ export async function prepareBuild(root: string, upstream: Upstream, variant: Bu
     if (await writeUtf8IfChanged(jniFile, jniUpdated)) changed.push(jniRelative);
 
     // Upstream moved libvpx, dav1d and FFmpeg into TMessagesProj/jni/third_party,
-    // where the ABI list comes from the ABIS environment variable, so only the
-    // remaining script needs its target list rewritten; build-upstream.sh
-    // exports ABIS for the new layout. The _clang.sh scripts stay supported for
-    // the older tags a release ref can still point at.
-    const nativeScripts = ["TMessagesProj/jni/build_boringssl.sh"];
+    // then replaced that tree with TMessagesProj/jni/prebuild: the new layout
+    // commits one archive set per ABI under prebuild/lib and every script takes
+    // its target list from the ABIS environment variable, so nothing needs
+    // rewriting here. Only the older tags a release ref can still point at keep
+    // a hardcoded target list in scripts under jni/; patch those when present.
+    const nativeScripts: string[] = [];
     for (const legacy of [
+      "TMessagesProj/jni/build_boringssl.sh",
       "TMessagesProj/jni/build_libvpx_clang.sh",
       "TMessagesProj/jni/build_ffmpeg_clang.sh",
     ]) {
       if (await exists(path.join(root, legacy))) nativeScripts.push(legacy);
+    }
+    if (nativeScripts.length === 0) {
+      // The JNI build links the prebuilt archives instead, so the variant is
+      // only buildable when they are there for every ABI it asks Gradle for.
+      // Checking here turns a layout change into an immediate error rather than
+      // a linker failure at the end of the native build.
+      for (const abi of abis) {
+        const archive = `TMessagesProj/jni/prebuild/lib/${abi}/libcrypto.a`;
+        if (!(await exists(path.join(root, archive)))) {
+          throw new PatchError(archive, `no native library for the ${variant} build`);
+        }
+      }
     }
     for (const relative of nativeScripts) {
       const file = path.join(root, relative);

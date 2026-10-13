@@ -115,13 +115,19 @@ case "$CLIENT" in
 esac
 
 if [[ "$CLIENT" == "nagram" ]]; then
-  cd "$SOURCE_ROOT"
-  # libvpx, dav1d and FFmpeg in this order: FFmpeg links both codec libraries
-  # and then packages the shared include tree the JNI build compiles against.
-  ./run init libs libvpx
-  ./run init libs dav1d
-  ./run init libs ffmpeg
-  ./run init libs boringssl
+  # Upstream now commits the native archives per ABI under
+  # TMessagesProj/jni/prebuild and the JNI build links them straight from
+  # there, so nothing has to be fetched or compiled before Gradle runs. The
+  # legacy scripts only survive on the older tags a release ref can point at.
+  if [[ -f "$SOURCE_ROOT/TMessagesProj/jni/build_boringssl.sh" ]]; then
+    cd "$SOURCE_ROOT"
+    # libvpx, dav1d and FFmpeg in this order: FFmpeg links both codec libraries
+    # and then packages the shared include tree the JNI build compiles against.
+    ./run init libs libvpx
+    ./run init libs dav1d
+    ./run init libs ffmpeg
+    ./run init libs boringssl
+  fi
 fi
 
 for brand in qq wechat wecom dingtalk discord; do

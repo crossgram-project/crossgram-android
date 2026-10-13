@@ -101,6 +101,10 @@ describe("build scripts", () => {
       expect(script.indexOf("./run init libs dav1d")).toBeLessThan(script.indexOf("./run init libs ffmpeg"));
       expect(script.indexOf("./run init libs ffmpeg")).toBeLessThan(script.indexOf("./run init libs boringssl"));
       expect(script).toMatch(/export ABIS=/);
+      // The prebuild tree commits the archives and the JNI build links them
+      // directly, so the legacy sequence may only run for tags that still ship
+      // the scripts it feeds.
+      expect(script).toMatch(/if \[\[ -f [^\]]*build_boringssl\.sh"? \]\]/);
     }
     // Bash cannot export an array, so the list has to cross the process
     // boundary as a scalar that the native scripts inherit.

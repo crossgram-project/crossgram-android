@@ -55,10 +55,15 @@ export ABIS="$(native_abi_list "$VARIANT")"
 export COMPILE_NATIVE=1
 
 cd "$SOURCE_ROOT"
-./run init libs libvpx
-./run init libs dav1d
-./run init libs ffmpeg
-./run init libs boringssl
+# Upstream commits the native archives per ABI under TMessagesProj/jni/prebuild
+# and the JNI build links them from there, so the legacy fetch-and-build scripts
+# below only exist on the older tags a reference can still point at.
+if [[ -f "TMessagesProj/jni/build_boringssl.sh" ]]; then
+  ./run init libs libvpx
+  ./run init libs dav1d
+  ./run init libs ffmpeg
+  ./run init libs boringssl
+fi
 ./gradlew :TMessagesProj:assembleDebug --build-cache --no-configuration-cache --max-workers=2
 
 find "$SOURCE_ROOT" -type f -path '*/build/outputs/apk/debug/*.apk' -print0 \
