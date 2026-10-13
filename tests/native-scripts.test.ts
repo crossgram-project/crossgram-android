@@ -109,6 +109,10 @@ describe("build scripts", () => {
       // directly, so the legacy sequence may only run for tags that still ship
       // the scripts it feeds.
       expect(script).toMatch(/if \[\[ -f [^\]]*build_boringssl\.sh"? \]\]/);
+      // Those committed archives carry no APNG decoder, so the prebuild layout
+      // rebuilds the FFmpeg chain from the patched sources instead.
+      expect(script).toMatch(/for step in build_libvpx\.sh build_dav1d\.sh build_ffmpeg\.sh/);
+      expect(script).toContain("TMessagesProj/jni/prebuild/$step");
     }
     // Bash cannot export an array, so the list has to cross the process
     // boundary as a scalar that the native scripts inherit.

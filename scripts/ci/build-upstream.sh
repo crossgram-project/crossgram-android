@@ -123,16 +123,25 @@ esac
 if [[ "$CLIENT" == "nagram" ]]; then
   # Upstream now commits the native archives per ABI under
   # TMessagesProj/jni/prebuild and the JNI build links them straight from
-  # there, so nothing has to be fetched or compiled before Gradle runs. The
-  # legacy scripts only survive on the older tags a release ref can point at.
-  if [[ -f "$SOURCE_ROOT/TMessagesProj/jni/build_boringssl.sh" ]]; then
-    cd "$SOURCE_ROOT"
+  # there, but those archives are configured without the APNG decoder or the
+  # GIF parser raw animation installs, so the three libraries whose configure
+  # flags decide them are rebuilt from the patched sources. The legacy scripts
+  # only survive on the older tags a release ref can point at.
+  cd "$SOURCE_ROOT"
+  if [[ -f "TMessagesProj/jni/build_boringssl.sh" ]]; then
     # libvpx, dav1d and FFmpeg in this order: FFmpeg links both codec libraries
     # and then packages the shared include tree the JNI build compiles against.
     ./run init libs libvpx
     ./run init libs dav1d
     ./run init libs ffmpeg
     ./run init libs boringssl
+  else
+    # FFmpeg needs the pkg-config files of the two codec libraries, so they are
+    # rebuilt for the same ABI first. ABIS is already exported above.
+    for step in build_libvpx.sh build_dav1d.sh build_ffmpeg.sh; do
+      echo ">> prebuild $step"
+      bash "TMessagesProj/jni/prebuild/$step"
+    done
   fi
 fi
 

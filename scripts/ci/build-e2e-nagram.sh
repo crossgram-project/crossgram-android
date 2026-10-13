@@ -55,14 +55,20 @@ export ABIS="$(native_abi_list "$VARIANT")"
 export COMPILE_NATIVE=1
 
 cd "$SOURCE_ROOT"
-# Upstream commits the native archives per ABI under TMessagesProj/jni/prebuild
-# and the JNI build links them from there, so the legacy fetch-and-build scripts
-# below only exist on the older tags a reference can still point at.
+# Upstream commits the native archives under TMessagesProj/jni/prebuild, but
+# they are configured without the APNG decoder and the GIF parser raw animation
+# installs, so the three libraries whose configure flags decide them are rebuilt
+# from the patched sources. The legacy scripts only exist on older references.
 if [[ -f "TMessagesProj/jni/build_boringssl.sh" ]]; then
   ./run init libs libvpx
   ./run init libs dav1d
   ./run init libs ffmpeg
   ./run init libs boringssl
+else
+  for step in build_libvpx.sh build_dav1d.sh build_ffmpeg.sh; do
+    echo ">> prebuild $step"
+    bash "TMessagesProj/jni/prebuild/$step"
+  done
 fi
 ./gradlew :TMessagesProj:assembleDebug --build-cache --no-configuration-cache --max-workers=2
 
