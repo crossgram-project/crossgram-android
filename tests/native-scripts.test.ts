@@ -52,6 +52,10 @@ describe("build scripts", () => {
     expect(source).toContain("TMessagesProj/jni/third_party/libvpx");
     expect(source).toContain("TMessagesProj/jni/third_party/ffmpeg");
     expect(source).toContain("TMessagesProj/jni/third_party/dav1d");
+    // Mercurygram compiles every bundled library from source, so the WAMR and
+    // Abseil trees its own submodule list forgets have to be initialized here.
+    expect(source).toContain("TMessagesProj/jni/third_party/wamr");
+    expect(source).toContain("TMessagesProj/jni/third_party/absl");
     // Every listed submodule has to live where the fork actually keeps it:
     // upstream moved the native ones under TMessagesProj/jni/third_party.
     expect(source).not.toMatch(

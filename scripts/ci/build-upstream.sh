@@ -18,11 +18,17 @@ mkdir -p "$PATCHER_ROOT/upstream" "$OUTPUT_ROOT"
 git clone --depth 1 --branch "$REF" "https://github.com/$REPOSITORY.git" "$SOURCE_ROOT"
 case "$CLIENT" in
   mercurygram)
+    # jni/prebuild/build_*.sh compiles every bundled static library from source
+    # for each ABI, and jni/CMakeLists.txt builds libyuv and Abseil in tree.
+    # The fork's own patchNativeSources only initializes part of that set, so
+    # the rest has to be here or the native step dies on a missing source tree.
     git -C "$SOURCE_ROOT" submodule update --init --recursive --depth 1 \
       TMessagesProj/jni/third_party/libvpx \
       TMessagesProj/jni/third_party/ffmpeg \
       TMessagesProj/jni/third_party/dav1d \
       TMessagesProj/jni/third_party/boringssl \
+      TMessagesProj/jni/third_party/absl \
+      TMessagesProj/jni/third_party/wamr \
       TMessagesProj/jni/td \
       TMessagesProj/jni/whisper
     ;;
