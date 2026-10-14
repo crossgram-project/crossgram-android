@@ -8,4 +8,6 @@
     <string name="ServerSwitchJsonHint">在此粘贴服务器配置 JSON</string>
     <string name="ServerSwitchError">服务器配置错误</string>
     <string name="ServerSwitchUnknownError">无法保存服务器配置。</string>
+    <string name="ServerSwitchCancel">取消</string>
+    <string name="ServerSwitchOk">确定</string>
 </resources>

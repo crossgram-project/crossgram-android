@@ -4,6 +4,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.res.Resources;
 import android.text.InputType;
 import android.view.Gravity;
 import android.widget.EditText;
@@ -28,15 +29,16 @@ public final class ServerSwitchDialogs {
         List<ServerSwitchConfig.Server> servers = ServerSwitchConfig.getServers();
         String selectedId = ServerSwitchConfig.getSelectedServerId(account);
         CharSequence[] items = new CharSequence[servers.size() + 2];
-        items[0] = markSelected(context.getString(R.string.ServerSwitchOfficial), selectedId.isEmpty());
+        items[0] = markSelected(text(context, R.string.ServerSwitchOfficial, "Official configuration"),
+                selectedId.isEmpty());
         for (int i = 0; i < servers.size(); i++) {
             ServerSwitchConfig.Server server = servers.get(i);
             items[i + 1] = markSelected(server.name, server.id.equals(selectedId));
         }
-        items[items.length - 1] = context.getString(R.string.ServerSwitchAdd);
+        items[items.length - 1] = text(context, R.string.ServerSwitchAdd, "Add configuration");
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle(context.getString(R.string.ServerSwitchTitle));
+        builder.setTitle(text(context, R.string.ServerSwitchTitle, "Server"));
         builder.setItems(items, (dialog, which) -> {
             try {
                 if (which == 0) {
@@ -52,7 +54,7 @@ public final class ServerSwitchDialogs {
                 showError(fragment, e.getMessage());
             }
         });
-        builder.setNegativeButton(context.getString(R.string.Cancel), null);
+        builder.setNegativeButton(text(context, R.string.ServerSwitchCancel, "Cancel"), null);
         fragment.showDialog(builder.create());
     }
 
@@ -61,7 +63,7 @@ public final class ServerSwitchDialogs {
         if (context == null) return;
         EditText input = new EditText(context);
         input.setGravity(Gravity.TOP | Gravity.START);
-        input.setHint(context.getString(R.string.ServerSwitchJsonHint));
+        input.setHint(text(context, R.string.ServerSwitchJsonHint, "Paste the server configuration JSON here"));
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         input.setMinLines(10);
@@ -75,11 +77,11 @@ public final class ServerSwitchDialogs {
                 LayoutHelper.WRAP_CONTENT));
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle(context.getString(R.string.ServerSwitchAddTitle));
+        builder.setTitle(text(context, R.string.ServerSwitchAddTitle, "Add server configuration"));
         builder.setView(container);
-        builder.setPositiveButton(context.getString(R.string.OK), null);
-        builder.setNeutralButton(context.getString(R.string.ServerSwitchClipboard), null);
-        builder.setNegativeButton(context.getString(R.string.Cancel), null);
+        builder.setPositiveButton(text(context, R.string.ServerSwitchOk, "OK"), null);
+        builder.setNeutralButton(text(context, R.string.ServerSwitchClipboard, "Read clipboard"), null);
+        builder.setNegativeButton(text(context, R.string.ServerSwitchCancel, "Cancel"), null);
         AlertDialog dialog = builder.create();
         fragment.showDialog(dialog);
 
@@ -119,10 +121,28 @@ public final class ServerSwitchDialogs {
         Context context = fragment.getParentActivity();
         if (context == null) return;
         new AlertDialog.Builder(context)
-                .setTitle(context.getString(R.string.ServerSwitchError))
-                .setMessage(message == null ? context.getString(R.string.ServerSwitchUnknownError) : message)
-                .setPositiveButton(context.getString(R.string.OK), null)
+                .setTitle(text(context, R.string.ServerSwitchError, "Server configuration error"))
+                .setMessage(message == null
+                        ? text(context, R.string.ServerSwitchUnknownError, "Could not save the server configuration.")
+                        : message)
+                .setPositiveButton(text(context, R.string.ServerSwitchOk, "OK"), null)
                 .show();
+    }
+
+    /**
+     * Upstream release builds enable R8's optimized resource shrinking, which drops every
+     * string its own code does not reference - including the shared ones such as
+     * {@code R.string.Cancel}. Looking such an id up through {@link Context#getString(int)}
+     * throws {@link Resources.NotFoundException}, which used to take the whole app down as
+     * soon as the server list was opened. This feature therefore only reads its own strings
+     * and degrades to {@code fallback} instead of crashing when one is missing.
+     */
+    private static String text(Context context, int resId, String fallback) {
+        try {
+            return context.getString(resId);
+        } catch (Resources.NotFoundException e) {
+            return fallback;
+        }
     }
 
     private static void run(Runnable runnable) {

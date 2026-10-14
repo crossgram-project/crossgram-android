@@ -100,6 +100,85 @@ describe("server switch login entry", () => {
   });
 });
 
+describe("server switch dialog strings", () => {
+  const dialogFile = "features/server-switch/files/java/org/telegram/messenger/server_switch/ServerSwitchDialogs.java";
+  const englishFile = "features/server-switch/files/res/values/server_switch_strings.xml";
+  const chineseFile = "features/server-switch/files/res/values-zh-rCN/server_switch_strings.xml";
+
+  async function definedNames(file: string): Promise<string[]> {
+    const xml = await readFile(path.resolve(file), "utf8");
+    return [...xml.matchAll(/<string name="([^"]+)"/g)].map((match) => match[1] ?? "");
+  }
+
+  it("keeps every string the dialog looks up inside this feature", async () => {
+    const dialog = stripComments(await readFile(path.resolve(dialogFile), "utf8"));
+    const referenced = [...dialog.matchAll(/R\.string\.([A-Za-z_0-9]+)/g)].map((match) => match[1] ?? "");
+    const english = await definedNames(englishFile);
+    const chinese = await definedNames(chineseFile);
+
+    expect(referenced.length).toBeGreaterThan(0);
+    for (const name of referenced) {
+      expect(english, `${name} must be shipped by the feature`).toContain(name);
+      expect(chinese, `${name} must be translated as well`).toContain(name);
+    }
+    expect([...english].sort()).toEqual([...chinese].sort());
+  });
+
+  it("never reads a shared upstream string that R8's resource shrinker drops", async () => {
+    const dialog = stripComments(await readFile(path.resolve(dialogFile), "utf8"));
+
+    // Upstream release builds delete every string their own code does not reference, so a
+    // lookup of e.g. R.string.Cancel throws Resources$NotFoundException at runtime.
+    expect(dialog).not.toMatch(/R\.string\.(Cancel|OK)\b/);
+    // Every lookup goes through the helper, which is the only caller of Context.getString.
+    expect(dialog.match(/context\.getString\(/g)).toHaveLength(1);
+    expect(dialog.match(/text\(context, R\.string\./g)?.length ?? 0).toBeGreaterThanOrEqual(8);
+    expect(dialog).toContain("catch (Resources.NotFoundException e)");
+  });
+
+  it("only references strings the patch pipeline ships for the whole feature set", async () => {
+    async function collectSources(directory: string): Promise<string[]> {
+      const { readdir } = await import("node:fs/promises");
+      const entries = await readdir(directory, { withFileTypes: true });
+      const files: string[] = [];
+      for (const entry of entries) {
+        const full = path.join(directory, entry.name);
+        if (entry.isDirectory()) files.push(...await collectSources(full));
+        else files.push(full);
+      }
+      return files;
+    }
+
+    const featureRoot = path.resolve("features");
+    const sources = await collectSources(featureRoot);
+    const shipped = new Set<string>();
+    for (const file of sources) {
+      if (!file.endsWith(".xml") || !file.includes(`${path.sep}res${path.sep}`)) continue;
+      for (const name of await definedNames(file)) shipped.add(name);
+    }
+    expect(shipped.has("ServerSwitchTitle")).toBe(true);
+
+    // Nagram's own custom-backend label, restored verbatim by the login patch; its menu is
+    // built by Nagram's code and the string lives in a file the shrinker keeps.
+    const upstreamOwned = new Set(["CustomBackend"]);
+    const unshipped: string[] = [];
+    for (const file of sources) {
+      if (!/\.(java|ts)$/.test(file)) continue;
+      const source = stripComments(await readFile(file, "utf8"));
+      for (const match of source.matchAll(/R\.string\.([A-Za-z_0-9]+)/g)) {
+        const name = match[1] ?? "";
+        if (!shipped.has(name) && !upstreamOwned.has(name)) unshipped.push(`${path.relative(featureRoot, file)}: ${name}`);
+      }
+    }
+    expect(unshipped).toEqual([]);
+  });
+});
+
+/** Comment text may name a resource without reading it. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+}
+
 describe("server switch initialization", () => {
   it("restores the selected custom datacenters after tgnet cleanup", () => {
     const source = `package org.telegram.tgnet;
