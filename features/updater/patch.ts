@@ -17,9 +17,8 @@ const helperImport = "org.telegram.messenger.crossgram_update.CrossgramUpdate";
 const helperCall = "CrossgramUpdate.check(";
 
 /**
- * The checkAppUpdate() overloads of the supported forks. Every fork exposes at
- * least one of them, and only the bodies change: the upstream call sites
- * (application start, resume, the settings and debug entries) keep working.
+ * 受支持上游中的 checkAppUpdate() 重载列表。
+ * 各分支至少包含其中一个签名，仅替换方法体即可接管启动、onResume、设置与调试菜单中的全部更新检查入口。
  */
 export const updaterOverloads = [
   {
@@ -44,7 +43,7 @@ export const updaterOverloads = [
   },
 ] as const;
 
-/** The Crossgram check, in the shape of the overload that is being replaced. */
+/** 生成与目标重载签名匹配的 CrossgramUpdate.check() 方法体。 */
 function replacementBody(overload: { readonly withProgress: boolean }): string {
   if (!overload.withProgress) {
     return "\n        CrossgramUpdate.check(this, force, null);\n    ";
@@ -69,8 +68,7 @@ function countMatches(source: string, pattern: RegExp): number {
 }
 
 /**
- * Route every upstream update check through the Crossgram release manifest.
- * Idempotent: a body that already calls the helper is left alone.
+ * 将上游所有 checkAppUpdate 重载转发到 Crossgram 更新检查（幂等）。
  */
 export function patchUpdaterLaunchActivity(initial: string, file = launchActivityRelative): string {
   let source = addJavaImport(initial, helperImport, file);
@@ -92,7 +90,7 @@ export function patchUpdaterLaunchActivity(initial: string, file = launchActivit
   return source;
 }
 
-/** Install the helper, with the upstream identity baked into it. */
+/** 写入更新器运行时类并填入当前上游 id。 */
 async function installUpdaterHelper(
   root: string,
   upstream: Upstream,

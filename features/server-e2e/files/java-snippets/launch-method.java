@@ -115,10 +115,7 @@
             return true;
         }
         if ("sticker-files".equals(command)) {
-            // Downloads every document of one installed set through the real
-            // FileLoader and checks each landed file against the advertised
-            // size and a complete image decode, the two ways a sticker cell
-            // ends up drawn only halfway.
+            // 通过真实 FileLoader 下载指定贴纸包的全部文件，校验文件大小与图像完整性（防止贴纸只画出一半）。
             long setId = intent.getLongExtra("crossgram_e2e_sticker_set_id", 0);
             boolean clearCache = intent.getBooleanExtra("crossgram_e2e_clear_sticker_cache", true);
             MediaDataController mediaDataController = MediaDataController.getInstance(currentAccount);
@@ -149,9 +146,7 @@
             return true;
         }
         if ("sticker-cells".equals(command)) {
-            // Renders every sticker of one set through the production panel
-            // cell and inspects the bitmap it draws: a sticker "loaded only
-            // halfway" shows as a decoded bitmap whose lower rows are blank.
+            // 用正式面板 StickerEmojiCell 渲染贴纸包并检查位图下半部分是否空白，排查半截贴纸问题。
             long setId = intent.getLongExtra("crossgram_e2e_sticker_set_id", 0);
             MediaDataController mediaDataController = MediaDataController.getInstance(currentAccount);
             mediaDataController.loadStickers(MediaDataController.TYPE_IMAGE, false, true, true);
@@ -268,9 +263,7 @@
                         MediaDataController.getInstance(currentAccount).addRecentSticker(
                                 MediaDataController.TYPE_IMAGE, pack, document,
                                 (int) (System.currentTimeMillis() / 1000), false);
-                        // The argument list has to match one of the sendSticker
-                        // overloads of the pinned upstream; applyServerE2e checks it
-                        // against SendMessagesHelper before injecting this snippet.
+                        // 参数列表需与固定上游的 sendSticker 重载一致，applyServerE2e 注入前会校验 SendMessagesHelper 签名。
                         SendMessagesHelper.getInstance(currentAccount).sendSticker(
                                 document, null, dialogId, null, null, null, null, null,
                                 true, 0, 0, false, pack, null, 0, 0, null);
@@ -327,9 +320,7 @@
                         + " exists=" + (file != null && file.exists())
                         + " size=" + (file == null ? -1 : file.length()));
                 org.telegram.ui.Components.AnimatedFileDrawable drawable = null;
-                // The drawable swallows the decoder's status, so log the raw
-                // decode loop first: a stall shows up here as result=0 or as a
-                // repeated checksum instead of only in the final assertion.
+                // AnimatedFileDrawable 会吞掉解码器状态；先单独跑一轮原始解码日志，方便区分 result=0 或帧校验和重复。
                 try {
                     int[] decodeMetaData = new int[8];
                     org.telegram.ui.Components.AnimatedFileNative decoder =
@@ -342,9 +333,7 @@
                                 Math.max(1, decodeMetaData[0]), Math.max(1, decodeMetaData[1]),
                                 android.graphics.Bitmap.Config.ARGB_8888);
                         for (int attempt = 0; attempt < 6; attempt++) {
-                            // Erasing first separates "the decoder repeated a frame"
-                            // from "the decoder produced one that never reached the
-                            // bitmap": an unwritten frame leaves the erase behind.
+                            // 每次解码前先清空位图，以区分「解码器重复输出同一帧」与「解码器未写入位图」。
                             decodeBitmap.eraseColor(0);
                             int result = decoder.getVideoFrame(decodeBitmap, false, 0, 0, true);
                             android.util.Log.i("CrossgramE2E", "raw_animation_frame format=" + expectedFormat
@@ -490,8 +479,7 @@
                 messages.add(target);
                 int requestId = SendMessagesHelper.getInstance(currentAccount)
                         .sendMessage(messages, destinationDialogId, false, false, true, 0, 0);
-                // Nagram may return 0 even after the forward has been queued.
-                // The host-side E2E verifies the authoritative new relay row.
+                // Nagram 入队转发后仍可能返回 0，由宿主机 E2E 校验 relay 实际新增的消息记录。
                 android.util.Log.i("CrossgramE2E", "function_called:forwardMessages target_id=" + target.getId()
                         + " request_id=" + requestId);
             });
@@ -880,7 +868,7 @@
             public void onReactionClicked(android.view.View view,
                     org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble.VisibleReaction visibleReaction,
                     boolean longpress, boolean addToRecent) {
-                // The E2E panel is read-only; it only exercises production rendering and loading.
+                // E2E 面板仅用于验证加载与渲染，忽略点击。
             }
         });
         android.widget.FrameLayout.LayoutParams params = new android.widget.FrameLayout.LayoutParams(
@@ -1011,9 +999,7 @@
             boolean holdersReady = expectedHolders > 0 && holders == expectedHolders
                     && loadedHolders == expectedHolders && pixelReadyHolders == expectedPixelHolders
                     && unpremultipliedPixels == 0 && holderKeys.size() == expectedHolders;
-            // Compact holders are the rendering assertion. Telegram does not persist every
-            // enter/select/around helper animation merely because one compact frame is visible;
-            // the expanded sweep below validates each actual grid document and its file.
+            // 收起态面板主要校验各 holder 渲染；Telegram 在收起态不会落盘全部 enter/select/around 辅助动画，后续展开态会逐格校验完整网格文档与文件。
             boolean filesReady = missingDocuments == 0 && !documents.isEmpty();
             if (holdersReady && filesReady) {
                 android.util.Log.i("CrossgramE2E", "reaction_panel_compact_loaded holders=" + holders
@@ -1748,12 +1734,7 @@
             android.util.Log.i("CrossgramE2E", "sticker_cells_started set_id=" + set.set.id + " total=" + documents.size());
     }
 
-    /**
-     * {painted rows ratio of the drawn bitmap's bounding box, painted ratio of
-     * its top quarter}, or null when the receiver has no bitmap.  A half
-     * decoded JPEG/GIF paints its top rows and leaves the rest blank or grey.
-     */
-    /** Writes the bitmap a receiver currently draws to the app's external files dir. */
+    /** 将 ImageReceiver 当前绘制的位图导出到应用外部文件目录。 */
     private String crossgramE2eDumpBitmap(org.telegram.messenger.ImageReceiver receiver, String name) {
             try {
                 android.graphics.Bitmap bitmap = receiver == null ? null : receiver.getBitmap();
@@ -1773,6 +1754,10 @@
             }
     }
 
+    /**
+     * 返回 {整体有效绘制行占比, 顶部 1/4 区域有效绘制行占比}，无位图时返回 null。
+     * 半截解码的 JPEG/GIF 通常只有顶部若干行有像素，其余区域为空白或纯色。
+     */
     private float[] crossgramE2eBitmapCoverage(org.telegram.messenger.ImageReceiver receiver) {
             if (receiver == null || !receiver.hasImageLoaded()) return null;
             android.graphics.Bitmap bitmap = receiver.getBitmap();
@@ -1872,7 +1857,7 @@
             }
     }
 
-    /** Null when a JPEG/PNG/GIF file carries its format trailer, else the defect. */
+    /** 校验 JPEG/PNG/GIF 文件尾标识是否完整，完整返回 null，否则返回原因标识。 */
     private String crossgramE2eTruncatedImage(java.io.File file) {
             try (java.io.RandomAccessFile input = new java.io.RandomAccessFile(file, "r")) {
                 long length = input.length();

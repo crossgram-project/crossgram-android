@@ -20,7 +20,7 @@ const chatActivityFile = `${javaRoot}/org/telegram/ui/ChatActivity.java`;
 
 const pokeImport = "org.telegram.messenger.crossgram_poke.CrossgramPoke";
 
-/** Add the poke rows to the avatar previewer's menu and let it own the rounding. */
+/** 仅在正则匹配唯一且尚未包含 marker 时执行替换。 */
 function replaceRegexIfUnique(
   source: string,
   pattern: RegExp,
@@ -61,7 +61,7 @@ export function patchAvatarPreviewer(initial: string): string {
   return source;
 }
 
-/** Let the avatar menus in a chat know which conversation they belong to. */
+/** 在聊天界面进入时记录当前会话，并为降级头像菜单挂入「戳一戳」入口。 */
 export function patchChatActivity(initial: string): string {
   let source = addJavaImport(initial, pokeImport, chatActivityFile);
   source = replaceRegexIfUnique(
@@ -76,8 +76,7 @@ export function patchChatActivity(initial: string): string {
     chatActivityFile,
     "patch the long-press avatar menu",
     (body) => {
-      // Forks without the full-screen previewer build a small ItemOptions menu
-      // instead; the poke row joins that one as a single tap action.
+      // 未启用全屏头像预览的分支会退化为 ItemOptions 菜单，在此追加单次「戳一戳」项。
       if (body.includes("CrossgramPoke.appendOptions(")) return body;
       const target = "ItemOptions.makeOptions(ChatActivity.this, cell)";
       return countOccurrences(body, target) === 1
@@ -111,8 +110,7 @@ export async function applyPoke(root: string, _upstream: Upstream): Promise<stri
   const avatarPreviewerTarget = path.join(root, avatarPreviewerFile);
   const chatActivityTarget = path.join(root, chatActivityFile);
   await installPokeHelper(root, changedFiles);
-  // Both call sites moved around between forks; patch what is actually there and
-  // leave the rest of the tree untouched instead of shipping a half-filled menu.
+  // 不同上游的调用点可能增删或迁移，仅在对应文件和目标方法存在时打补丁。
   const present = await Promise.all([
     access(avatarPreviewerTarget).then(() => true, () => false),
     access(chatActivityTarget).then(() => true, () => false),

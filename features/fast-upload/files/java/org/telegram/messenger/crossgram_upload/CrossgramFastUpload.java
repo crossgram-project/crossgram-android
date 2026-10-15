@@ -19,13 +19,12 @@ import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Hash-first Crossgram upload probe. A miss or any error falls back to saveFilePart. */
+/** 基于文件哈希的秒传探测；未命中或发生异常时自动回退到 saveFilePart 分块上传。 */
 public final class CrossgramFastUpload {
     private static final int PREPARE_MEDIA_UPLOAD_V3_CONSTRUCTOR = 0xf75adc10;
     private static final int VIDEO_THUMBNAIL_MAX_SIDE = 320;
     private static final int MAX_TARGETS = 512;
-    /** The RPC has no client-side timeout of its own; without this cap a lost
-     * response leaves the upload stuck at 0% forever. */
+    /** 该自定义 RPC 自身无客户端超时，必须兜底防止丢包导致上传永久卡在 0%。 */
     private static final long PROBE_TIMEOUT_MS = 10_000;
     private static final ConcurrentHashMap<String, Target> TARGETS = new ConcurrentHashMap<>();
 
@@ -73,7 +72,7 @@ public final class CrossgramFastUpload {
         TLRPC.InputPeer peer = MessagesController.getInstance(account).getInputPeer(target.dialogId);
         if (peer == null || peer instanceof TLRPC.TL_inputPeerEmpty) return false;
         Utilities.globalQueue.postRunnable(() -> {
-            // Exactly one of {RPC response, timeout, error} may deliver the result.
+            // 保证 RPC 响应、超时与异常三者中只有一个触发回调。
             final AtomicBoolean delivered = new AtomicBoolean();
             try {
                 CrossgramFastUploadHash.Result hashes = CrossgramFastUploadHash.compute(file);

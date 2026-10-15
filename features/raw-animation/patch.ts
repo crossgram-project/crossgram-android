@@ -13,9 +13,7 @@ const animatedEmojiFile = "TMessagesProj/src/main/java/org/telegram/ui/Component
 const gifVideoFile = "TMessagesProj/jni/gifvideo.cpp";
 const snifferRelative = "org/telegram/messenger/crossgram_animation/CrossgramRawAnimationSniffer.java";
 const ffmpegScripts = [
-  // Every shape that builds FFmpeg from source: the Telegram forks patch their
-  // own copy, while Nagram moved its list into jni/third_party and Forkgram and
-  // Mercurygram build through jni/prebuild.
+  // 覆盖各上游从源码编译 FFmpeg 的脚本路径（官方分支在原位置，Nagram 迁到 jni/third_party，Forkgram 和 Mercurygram 走 jni/prebuild）。
   "TMessagesProj/jni/build_ffmpeg_clang.sh",
   "TMessagesProj/jni/ffmpeg/build_ffmpeg/build_ffmpeg.sh",
   "TMessagesProj/jni/third_party/build_ffmpeg.sh",
@@ -208,10 +206,8 @@ export function patchAnimatedEmojiRawAnimation(initial: string): string {
 }
 
 /**
- * Rewrite the single line that carries an FFmpeg option, keeping the shape of
- * the list around it. Upstream ships that list both as one backslash-continued
- * command and as one entry per line, and a trailing backslash in the array form
- * would glue the next option onto the inserted one.
+ * 原地改写单行 FFmpeg 配置项并保留行尾格式。
+ * 上游既有反斜杠续行的单条命令，也有每行一项的数组写法；数组写法如果多出反斜杠会把下一项拼到一起。
  */
 function rewriteConfigureLine(
   source: string,
@@ -231,7 +227,7 @@ function rewriteConfigureLine(
   );
 }
 
-/** One more option on its own line, following the anchor line style. */
+/** 按锚点行的缩进与续行风格追加一行配置项。 */
 function appendConfigureLine(match: string, option: string): string {
   const indent = /^[ \t]*/.exec(match)?.[0] ?? "";
   const continuation = /\\[ \t]*$/.test(match) ? " \\" : "";
@@ -251,9 +247,7 @@ export function patchFfmpegRawAnimation(initial: string, file: string): string {
   }
   const apngFlags: readonly (readonly [string, string])[] = [
     ["--enable-decoder=apng", "enable the APNG codec"],
-    // APNG pulls in the shared PNG objects (pngdsp.o among them) but not the
-    // PNG decoder flag, and only that flag builds aarch64/pngdsp_init.o: the
-    // ARM64 link otherwise fails on the undefined ff_pngdsp_init_aarch64.
+    // APNG 会拉入 pngdsp.o 等共享对象，但只有开启 PNG decoder 才会编译 aarch64/pngdsp_init.o，否则 ARM64 链接会因缺少 ff_pngdsp_init_aarch64 失败。
     ["--enable-decoder=png", "enable the PNG decoder the APNG codec links against"],
     ["--enable-demuxer=apng", "enable the APNG container"],
   ];
@@ -268,12 +262,9 @@ export function patchFfmpegRawAnimation(initial: string, file: string): string {
       label,
     );
   }
-  // The GIF demuxer emits raw 1 KiB chunks (AVSTREAM_PARSE_FULL_RAW) and
-  // relies on the GIF parser to reassemble whole frames. `--disable-everything`
-  // drops that parser, so the decoder only ever sees the first chunk: one
-  // partial frame (a solid block or the top rows of the sticker) and no
-  // animation at all. Keep it next to the demuxer, outside any optional
-  // parser block, so every build that can demux GIF can also parse it.
+  // GIF demuxer 按 1 KiB 裸块输出（AVSTREAM_PARSE_FULL_RAW），依赖 GIF parser 重组完整帧。
+  // `--disable-everything` 会关掉该 parser，导致解码器只拿到首个分块、只画出残缺首帧且无法播放动画。
+  // 紧挨 demuxer 开启，保证所有能解复用 GIF 的构建都能解析完整帧。
   if (!source.includes("--enable-parser=gif")) {
     source = rewriteConfigureLine(
       source,
@@ -289,7 +280,7 @@ export function patchFfmpegRawAnimation(initial: string, file: string): string {
   return source;
 }
 
-/** Apply an edit when its anchor exists; forks without the anchor keep building. */
+/** 仅在锚点唯一存在时替换，兼容不含该锚点的上游分支。 */
 function replaceRegexIfPresent(
   source: string,
   pattern: RegExp,
@@ -306,11 +297,8 @@ const videoFrameReaderFile = "TMessagesProj/jni/gifvideo/video_frame_reader.h";
 const bitmapsCacheFile = "TMessagesProj/src/main/java/org/telegram/messenger/utils/BitmapsCache.java";
 
 /**
- * The reader seeks with a timestamp, which the containers QQ relays as stickers
- * and reactions (GIF and APNG) cannot answer: av_seek_frame() rejects them and
- * the animation stays on its last frame instead of looping. Keep the timestamp
- * seek for real videos, then fall back to the frame-index seek Telegram used
- * before the reader existed, and finally to rewinding the input by hand.
+ * VideoFrameReader 按时间戳 seek，但 QQ 转发的 GIF/APNG 贴纸与回应不含时间戳，av_seek_frame() 会直接失败并卡在末帧无法循环。
+ * 保留原时间戳 seek 供普通视频使用，失败时依次回退到按帧号 seek 和手动回绕输入流。
  */
 export function patchVideoFrameReader(initial: string, file: string): string {
   return replaceRegexOnce(
@@ -351,10 +339,8 @@ export function patchGifVideoRawAnimation(initial: string): string {
       "dataArr[4] = (int32_t) (info->fmt_ctx->duration * 1000 / AV_TIME_BASE);",
       "dataArr[4] = crossgramDurationMs(info);",
     );
-  // Nagram's reader starts where avformat_find_stream_info() left the input.
-  // For files that fit its probe buffer - QQ relays stickers that small - that
-  // is the end of the file, so only the frame it decoded stays reachable and the
-  // animation never advances. Rewind before the first pull.
+  // Nagram 的 VideoFrameReader 从 avformat_find_stream_info() 读完的位置继续读。
+  // 小体积贴纸在探测阶段就会读到文件末尾，导致后续无法推进帧，首次拉帧前需先回绕到开头。
   source = replaceRegexIfPresent(
     source,
     /^([ \t]*)info->reader = new VideoFrameReader\([^\r\n]*\);[ \t]*\r?$/m,
@@ -369,10 +355,7 @@ export function patchGifVideoRawAnimation(initial: string): string {
   );
 
   if (!source.includes("#include <libavutil/pixdesc.h>")) {
-    // Recent VideoFrameReader sources include eval/display but no intmath;
-    // older AnimatedFileDrawable sources include intmath. Select one stable
-    // include that is present exactly once instead of matching every libavutil
-    // header in the file.
+    // 新版 VideoFrameReader 包含 eval.h，旧版 AnimatedFileDrawable 包含 intmath.h；挑一个唯一存在的头文件作为插入锚点。
     const pixdescAnchor = source.includes("#include <libavutil/eval.h>")
       ? /(#include\s+<libavutil\/eval\.h>\s*\n)/
       : /(#include\s+<libavutil\/intmath\.h>\s*\n)/;
@@ -450,9 +433,7 @@ static void crossgramPremultiplyBitmap(
     gifVideoFile,
     "premultiply APNG alpha before Android Canvas composites the bitmap",
   );
-  // Telegram's legacy writer gained an explicit Android bitmap stride
-  // parameter in newer releases. Keep accepting both the old four-argument
-  // declaration and the newer five-argument form.
+  // 新版 Telegram 给旧版 writeFrameToBitmap 增加了 stride 参数，需同时兼容四参和五参签名。
   const legacyBitmapWriter = /static\s+(?:inline\s+)?void\s+writeFrameToBitmap\s*\(\s*JNIEnv\s*\*\s*env\s*,\s*VideoInfo\s*\*\s*info\s*,\s*jintArray\s+data\s*,\s*jobject\s+bitmap(?:\s*,\s*jint\s+stride)?\s*\)/;
   const modernBitmapWriter = /static\s+(?:inline\s+)?void\s+writeFrameToBitmap\s*\([^)]*AVFrame\s*\*\s*frame[^)]*\)/;
   const premultiplyBitmapWriter = (pattern: RegExp, frame: string): boolean => {
@@ -470,9 +451,7 @@ static void crossgramPremultiplyBitmap(
           if (!body.includes(unlock)) {
             throw new PatchError(gifVideoFile, "writeFrameToBitmap unlock anchor was not found");
           }
-          // The stride name differs between upstream revisions. Older
-          // fixtures/local forks expose bitmapStride, while recent Telegram
-          // releases pass it as the writer's `stride` argument.
+          // 旧版局部变量名为 bitmapStride，新版则由形参传入 stride。
           const bitmapStride = body.includes("bitmapStride") ? "bitmapStride" : "stride";
           return body.replace(
             unlock,
@@ -626,8 +605,7 @@ export async function applyRawAnimation(root: string, _upstream: Upstream): Prom
   const snifferTarget = path.join(root, "TMessagesProj/src/main/java", snifferRelative);
   const snifferSource = await readUtf8(path.join(featureRoot, "files/java", snifferRelative));
   if (await writeUtf8IfChanged(snifferTarget, snifferSource)) {
-    // Reported relative to the source root with forward slashes, so the list
-    // reads the same on every host.
+    // 统一用正斜杠记录相对路径，避免不同平台路径分隔符不一致。
     changedFiles.push("TMessagesProj/src/main/java/" + snifferRelative);
   }
 
@@ -659,11 +637,8 @@ export async function applyRawAnimation(root: string, _upstream: Upstream): Prom
 }
 
 /**
- * Pre-rendered frame caches (`acache/*.pcache2`) are keyed only by the source
- * file name and size. Builds without the GIF parser rendered QQ's GIF stickers
- * from a single partial chunk and stored that as the whole animation, so after
- * updating, the panel kept drawing the broken frame from disk. Version the key
- * so every build decoding raw GIFs correctly renders them afresh.
+ * 预渲染帧缓存（`acache/*.pcache2`）仅按源文件名和大小命名。
+ * 旧版本缺少 GIF parser 时会把残缺首帧写进磁盘缓存，升级后仍会直接复用；给缓存后缀加上版本号以强制重新渲染。
  */
 export function patchBitmapsCacheRawAnimation(initial: string, file = bitmapsCacheFile): string {
   return replaceRegexOnce(

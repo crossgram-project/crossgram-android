@@ -207,7 +207,7 @@ export async function applyBrand(root: string, upstream: Upstream, brand: Brand)
     try {
       properties = await readUtf8(path.join(root, "gradle.properties"));
     } catch {
-      // Most forks use a literal application ID and need no properties file.
+      // 多数分支直接在 build.gradle 中写死 applicationId，不含 gradle.properties。
     }
     const baseId = applicationIdFromGradle(gradle, properties, appGradle);
     const googleServices = await readUtf8(googleServicesFile);
@@ -233,7 +233,7 @@ export async function applyBrand(root: string, upstream: Upstream, brand: Brand)
     try {
       properties = await readUtf8(path.join(root, "gradle.properties"));
     } catch {
-      // Kotlin forks use literal application IDs.
+      // Kotlin DSL 分支直接在 build.gradle.kts 中写死 applicationId。
     }
     const baseId = applicationIdFromGradle(current, properties, appGradle);
     if (await writeUtf8IfChanged(

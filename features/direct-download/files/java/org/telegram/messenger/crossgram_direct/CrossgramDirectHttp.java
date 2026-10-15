@@ -16,7 +16,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
-/** One normal HTTP transfer shared by every part requested by FileLoadOperation. */
+/** 单次 FileLoadOperation 的所有分块请求共用的单条常规 HTTP 传输 */
 public final class CrossgramDirectHttp {
     public interface ReadCallback {
         void onResult(byte[] bytes, String error);
@@ -38,7 +38,7 @@ public final class CrossgramDirectHttp {
         private static final long IDLE_CLOSE_MINUTES = 10;
 
         private final String url;
-        /** Advertised file length, or 0 when unknown; bounds what may count as EOF. */
+        /** 服务端声明的文件长度 (未知时为 0), 避免响应流提前结束被误判成真 EOF */
         private final long expectedLength;
         private final File cacheFile;
         private final RandomAccessFile cache;
@@ -147,9 +147,7 @@ public final class CrossgramDirectHttp {
                 if (!validResponse(opened, status, baseOffset)) {
                     throw new IOException("direct HTTP could not resume at " + baseOffset + ", got " + status);
                 }
-                // Telegram treats a part shorter than requested as the end of
-                // the file, so a body that stops early must never read as
-                // complete: it would finalize a half image in the cache.
+                // Telegram 将小于请求长度的分块当成文件末尾, 若响应体提前截断却标记为完成, 半截图片就会永久写进缓存
                 long expectedEnd = expectedEnd(opened, baseOffset, expectedLength);
                 try (InputStream input = opened.getInputStream()) {
                     byte[] buffer = new byte[64 * 1024];
@@ -243,9 +241,7 @@ public final class CrossgramDirectHttp {
     }
 
     /**
-     * Absolute offset the body must reach: the larger of the file length the
-     * relay advertised and what Content-Length promises, 0 when neither is
-     * known (a chunked response of an unknown file ends at its own EOF).
+     * 响应流必须读到的绝对结束偏移: 取由 relay 声明的大小与 Content-Length 推算结束位置中的较大结果; 均未知时返回 0 (按响应流本身 EOF 结束)
      */
     static long expectedEnd(HttpURLConnection connection, long offset, long expectedLength) {
         long contentLength = connection.getContentLengthLong();

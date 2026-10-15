@@ -326,10 +326,7 @@ function nativeReplyPredicate(target) {
 async function main() {
   const command = option("command", "all");
   const coldReactionPanel = command === "reaction-panel" && booleanOption("clear-cache", true);
-  // A truly cold expanded panel can contain hundreds of animated assets. The
-  // emulator intentionally clears every cached reaction resource first, so
-  // allow the serialized UI sweep to finish instead of treating normal AVD
-  // download/decode time as a product failure.
+  // 冷启动展开表情回应面板需下载并解码上百个动画资源，给足超时时间以避免把 AVD 正常加载耗时误判为失败。
   const reactionPanelLoadTimeout = coldReactionPanel ? 300_000 : 90_000;
   const packageName = option("package", "xyz.nextalone.nagram.crossgram.qq");
   const dispatcherComponent = `${packageName}/org.telegram.ui.CrossgramE2eActivity`;
@@ -340,11 +337,7 @@ async function main() {
   const port = Number(option("port", "4430"));
 
   adb(["wait-for-device"]);
-  // A freshly cleared Android 13+ install otherwise opens the notification
-  // permission activity over LaunchActivity. Besides hiding DialogsActivity,
-  // that prompt can leave the debug build in startup ANR long enough for every
-  // MTProto connection to close, turning the dialog live-update check into a
-  // false negative.
+  // Android 13+ 首次启动会弹出通知权限授权页，既会遮挡 DialogsActivity，又可能导致 debug 包启动 ANR 断开 MTProto 连接；提前授予通知权限。
   adb(["shell", "pm", "grant", packageName, "android.permission.POST_NOTIFICATIONS"]);
   adb(["logcat", "-c"]);
 
@@ -1007,18 +1000,11 @@ async function main() {
       const explicitPeerId = option("peer-id");
       const peerId = resolvePeer(relayRoot, conversation, peerType, explicitPeerId);
       if (command === "draft") {
-        // An active ChatActivity immediately persists its empty composer after
-        // receiving updateDraftMessage, which clears the draft that this E2E
-        // just saved. Move to DialogsActivity first so the real Android draft
-        // controller can be observed without an active composer racing it.
+        // 处于活动状态的 ChatActivity 收到 updateDraftMessage 后会立刻把自己空白的输入框写回，把刚保存的草稿冲掉；先切回会话列表页再测试草稿。
         await dispatch(launchComponent, e2eAction, "dialogs");
         await waitFor("page_opened:dialogs");
       } else {
-        // Disk deletion alone is not a cold reaction load: ImageLoader can
-        // satisfy every holder from the previous process' memory cache and
-        // never recreate the files that this probe verifies. Restart before
-        // opening the chat so --clear-cache measures a real cold load and is
-        // repeatable across consecutive groups.
+        // 仅删磁盘文件不足以触发冷加载（ImageLoader 仍可能直接命中进程内存缓存而不重新落盘），因此测试冷加载前先强行停止进程。
         if (coldReactionPanel) {
           adb(["shell", "am", "force-stop", packageName]);
           adb(["logcat", "-c"]);

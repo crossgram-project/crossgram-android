@@ -54,14 +54,12 @@ run_animation() {
   return 1
 }
 
-# The app's own FFmpeg diagnostics live under the messages tag, so keep the whole
-# buffer when an animation check fails instead of only the harness lines.
+# 应用自身的 FFmpeg 诊断日志打在 messages 标签下，校验失败时导出最近 800 行完整日志以便排查。
 dump_logs() {
   adb logcat -d -t 800 >&2
 }
 
-# Both formats run even when the first one fails, so one failed check does not
-# hide the other's evidence.
+# 即使前一种格式失败也继续跑完另一种，避免掩盖后者的结果。
 status=0
 run_animation gif /data/local/tmp/crossgram-two-frame.gif || status=1
 run_animation apng /data/local/tmp/crossgram-two-frame.apng || status=1

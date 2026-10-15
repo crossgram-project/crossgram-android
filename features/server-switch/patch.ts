@@ -299,13 +299,8 @@ async function patchManagerCpp(root: string, changed: string[]): Promise<void> {
 }
 
 /**
- * Telegram's datacenter cycles every address through its "default" ports
- * (443, 5222) whenever the previous attempt failed, because official DCs
- * answer on all of them.  A custom server only listens on the port its
- * configuration names, so each slow first handshake sent the client to
- * 443/5222 of the relay host - ports a firewall usually drops - and the login
- * screen kept spinning.  Keep the configured port while a custom server is
- * selected.
+ * 官方 DC 监听 443/5222 等全部默认端口，因此 Telegram 连接失败时会轮询 defaultPorts。
+ * 自定义服务器仅监听配置指定的端口，一旦首次握手较慢就会切去 443/5222 并卡死在登录页；使用自定义服务器时固定走配置端口。
  */
 export function patchDatacenterPortSource(initial: string, file: string): string {
   let source = replaceRegexOnce(

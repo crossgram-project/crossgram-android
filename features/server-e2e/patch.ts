@@ -235,7 +235,7 @@ $1$2`,
   return source;
 }
 
-/** Split a Java parameter or argument list on the commas outside generics and calls. */
+/** 按顶层逗号切分 Java 形参或实参列表（忽略泛型与嵌套括号内的逗号）。 */
 function splitJavaList(list: string): string[] {
   const parts: string[] = [];
   let current = "";
@@ -254,12 +254,12 @@ function splitJavaList(list: string): string[] {
   return parts;
 }
 
-/** The declared type of a Java parameter, e.g. "TLRPC.Document document" -> "TLRPC.Document". */
+/** 提取 Java 形参声明中的类型部分，如 "TLRPC.Document document" -> "TLRPC.Document"。 */
 function parameterType(parameter: string): string {
   return parameter.split(/\s+/).slice(0, -1).join(" ");
 }
 
-/** Every sendSticker overload the tree declares, as its list of parameter types. */
+/** 提取源码中声明的全部 sendSticker 重载形参类型列表。 */
 function sendStickerOverloads(helperSource: string): string[][] {
   return [...helperSource.matchAll(/public\s+void\s+sendSticker\(([^)]*)\)\s*\{/g)].map((match) =>
     splitJavaList(match[1] ?? "").map(parameterType),
@@ -267,10 +267,8 @@ function sendStickerOverloads(helperSource: string): string[][] {
 }
 
 /**
- * The snippet drives SendMessagesHelper.sendSticker by position, and upstream adds
- * and removes parameters between releases without touching this file. Compare the
- * injected call against the overloads the tree actually declares, so a drifted call
- * fails the patch instead of the APK build that runs after the native one.
+ * E2E 代码片段按位置调用 SendMessagesHelper.sendSticker，而上游版本升级可能增删参数。
+ * 在打补丁阶段提前校验目标源码中是否存在匹配的重载，避免等到耗时编译完 native 后才在 Java 编译阶段报错。
  */
 export function assertSendStickerCallFits(helperSource: string, snippet: string, file: string): void {
   const overloads = sendStickerOverloads(helperSource);

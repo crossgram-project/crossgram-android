@@ -6,7 +6,7 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 
-/** Strictly recognizes the bridge references for which crossgram.getFileUrl is defined. */
+/** 校验文件引用是否属于支持 `crossgram.getFileUrl` 的服务端桥接资源 */
 final class CrossgramBridgeFileReference {
     private static final Pattern MEDIA = Pattern.compile("bridge-media:[1-9][0-9]*");
     private static final Pattern STICKER = Pattern.compile(
@@ -17,23 +17,21 @@ final class CrossgramBridgeFileReference {
     private CrossgramBridgeFileReference() {}
 
     /**
-     * Whether the advertised size of a bridge file is only an upper bound.
+     * 判断 bridge 文件声明的长度是否仅为上限数
      *
-     * QQ reports zero bytes for many native 720-tier previews and Telegram
-     * rejects a zero-byte PhotoSize, so the relay publishes the photo `m`
-     * preview with the original's byte count. Every other bridge size is exact.
+     * QQ 720 预览图常上报 0 字节, Telegram 拒绝 0 字节 PhotoSize, 故由 relay 按原图大小填充缩略图 `m` 预览; 其余资源长度均为精确结果
      */
     static boolean hasUpperBoundSize(byte[] reference, boolean photo, String thumbSize) {
         return photo && "m".equals(thumbSize) && supports(reference);
     }
 
-    /** A part shorter than requested is the real end of an upper-bound-sized file. */
+    /** 对于长度仅为上限数的文件, 收到分块小于请求长度时即视为已到真实末尾 */
     static boolean endsAtShortPart(byte[] reference, boolean photo, String thumbSize,
             long received, long requested) {
         return received >= 0 && received < requested && hasUpperBoundSize(reference, photo, thumbSize);
     }
 
-    /** A finished upper-bound-sized file may be shorter than advertised, but never empty. */
+    /** 长度仅为上限数的文件完成后允许小于原声明长度, 但不得为空白文件 */
     static boolean acceptsShorterFile(byte[] reference, boolean photo, String thumbSize,
             long advertised, long actual) {
         return actual > 0 && actual < advertised && hasUpperBoundSize(reference, photo, thumbSize);

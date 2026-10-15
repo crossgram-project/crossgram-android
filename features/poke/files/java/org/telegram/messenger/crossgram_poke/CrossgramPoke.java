@@ -23,24 +23,21 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Crossgram poke (the QQ "nudge") entry for the avatar menus of Telegram Android.
+ * 头像长按菜单中的「戳一戳」入口。
  *
- * The relay decides whether the entry exists: the client asks
- * `crossgram.getFeatures` for the conversation and only then offers the action,
- * so official Telegram servers never show it. Tapping sends one poke; holding
- * the row expands the 1/5/10 burst rows, the touch equivalent of the desktop
- * submenu arrow.
+ * 先向服务端请求 `crossgram.getFeatures` 探测当前会话是否支持戳一戳（官方 Telegram 服务端不会显示该项）。
+ * 单击发送 1 次，长按展开 1/5/10 连戳子项。
  */
 public final class CrossgramPoke {
     private static final int GET_FEATURES_CONSTRUCTOR = 0xc3e6b915;
     private static final int SEND_POKE_CONSTRUCTOR = 0x9a2d47f0;
-    /** The poke label; escapes keep the source ASCII for any compiler code page. */
+    /** 「戳一戳」，使用 Unicode 转义保证任意编译器编码下源码均为纯 ASCII。 */
     private static final String POKE_LABEL = "\u6233\u4e00\u6233";
-    /** The burst suffix, " times"; escapes keep the source ASCII. */
+    /** 连戳后缀「 次」，使用 Unicode 转义保持纯 ASCII。 */
     private static final String COUNT_SUFFIX = " \u6b21";
     private static final int[] BURST_COUNTS = new int[]{1, 5, 10};
 
-    /** An unanswered probe is repeated no faster than this. */
+    /** 探测请求未收到响应时的最小重试间隔。 */
     private static final long PROBE_RETRY_MS = 60 * 1000L;
 
     private static final Map<String, Integer> MAX_COUNTS = new ConcurrentHashMap<>();
@@ -56,7 +53,7 @@ public final class CrossgramPoke {
     private CrossgramPoke() {
     }
 
-    /** Remember which chat owns the avatar menu that is about to be shown. */
+    /** 记录当前聊天会话，供随后弹出的头像菜单使用。 */
     public static void setConversation(int account, long dialogId) {
         if (account == conversationAccount && dialogId == conversationDialogId) {
             return;
@@ -69,7 +66,7 @@ public final class CrossgramPoke {
         }
     }
 
-    /** True when the poke row will be appended, so the caller keeps its own last-row rounding. */
+    /** 若后续会追加「戳一戳」菜单项则返回 true，避免上游原末项提前绘制底部圆角。 */
     public static boolean keepsMenuLast(Object parentObject) {
         return maxCount(
                 parentObject instanceof TLRPC.User ? (TLRPC.User) parentObject : null,
@@ -115,9 +112,7 @@ public final class CrossgramPoke {
     }
 
     /**
-     * Add the single-poke row to the small avatar menu used when no previewer is
-     * possible. Upstream keeps building that menu as one fluent chain, so the
-     * same instance has to come back out.
+     * 在不支持全屏头像预览的降级 ItemOptions 菜单中追加单次「戳一戳」，并原样返回 options 以保持上游链式调用。
      */
     public static ItemOptions appendOptions(ItemOptions options, TLRPC.User user) {
         final int account = conversationAccount;
@@ -184,8 +179,7 @@ public final class CrossgramPoke {
             final String text = error != null ? error.text : "FEATURES_FAILED";
             FileLog.d("crossgram poke features " + key + " -> " + text);
             if (error != null && error.code > 0) {
-                // The server answered without knowing the method: this account is
-                // not on a relay with poke support, so stop asking.
+                // 服务端明确返回错误码说明不支持该 RPC，标记当前账号不再探测。
                 UNAVAILABLE_ACCOUNTS.add(account);
             }
             REJECTED.add(key);
@@ -205,8 +199,7 @@ public final class CrossgramPoke {
         request.peer = peer;
         request.user = target;
         request.count = count;
-        // The relay publishes QQ's own poke notice as a message update, so a
-        // successful poke needs no further UI and a failure stays in the log.
+        // 戳一戳成功后由 relay 下发系统提示消息，客户端仅在失败时打日志。
         ConnectionsManager.getInstance(account).sendRequest(request, (response, error) -> {
             if (error != null) {
                 FileLog.d("crossgram poke failed: " + error.text);

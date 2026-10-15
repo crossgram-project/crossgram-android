@@ -14,10 +14,9 @@ import org.telegram.ui.LaunchActivity;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Opens Crossgram's synthetic merged-forward chats and optional message anchors. */
+/** 打开 Crossgram 合成的合并转发会话，并支持跳转到指定消息锚点。 */
 public final class CrossgramMergedForward {
-    // The relay names a transcript after its bundle ("bridgebundle_"); the
-    // earlier "bridgechat_" shape is still addressable for cached links.
+    // 合并转发会话当前以 "bridgebundle_" 为前缀，同时兼容旧缓存链接中的 "bridgechat_"。
     private static final Pattern LINK = Pattern.compile(
             "^https?://(?:www\\.)?t\\.me/(bridgebundle|bridgechat)_([1-9][0-9]*)"
                     + "(?:/([1-9][0-9]*))?/?(?:[?#].*)?$",

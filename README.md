@@ -1,81 +1,53 @@
-# Crossgram Android patcher
+# Crossgram Android Patcher
 
 [![一键构建并发布](https://img.shields.io/badge/GitHub_Actions-一键构建并发布-2088FF?logo=githubactions&logoColor=white)](https://github.com/crossgram-project/crossgram-android/actions/workflows/release.yml)
 
-Crossgram 在 Telegram Android 及其第三方客户端源码上语义地注入服务器切换能力，并通过 GitHub Actions 自动构建多个品牌和 ABI 版本。patcher 使用 TypeScript、Node.js 24 与 Yarn 4；大段 Java/C++/资源代码保存在 `features/server-switch/files`，不依赖 `git apply`。
+向 Telegram Android 及第三方衍生客户端源码注入 Crossgram 特性的源码补丁工具（基于 TypeScript / Node.js 24，不依赖 `git apply`）。
 
-对于 `bridge-media:` 文件，修改版客户端会先调用 Crossgram 的
-`crossgram.getFileUrl` RPC，并为整个文件启动一次普通 HTTP 下载；Telegram 的
-分片装配器从同一个传输读取数据，不再为每个 `upload.getFile` 分片新建 HTTP 请求。
-如果 Telegram 已保留部分临时文件，则该传输只在启动时发送一次开放式
-`Range: bytes=<首个缺失偏移>-`，继续下载剩余内容。
-RPC、URL 或 HTTP 请求失败时自动回退到原有 `upload.getFile` relay 下载。每个下载操作通过
-`getCrossgramDownloadTransport()` 暴露 `direct` / `relay` 状态，日志使用
-`crossgram_download_transport=<direct|relay>` 标记。
+## 注入特性
 
-上传本地文件时，修改版客户端会在后台一次计算 MD5、SHA-1、每 1 MiB 的 cumulative
-SHA-1 checkpoint 和前 10 MiB MD5，再调用 `crossgram.prepareMediaUploadV2` 查询 QQ
-是否命中秒传并允许服务端并行流式上传 Highway。命中时继续复用原有
-`InputFile` 发送流程，但不再发送任何 `upload.saveFilePart`；RPC 失败、超时或未命中时
-自动继续原生分片上传。加密聊天、流式转码、语音和圆形视频不会执行秒传查询。
+- **服务器切换（`features/server-switch`）**：在登录页按账号槽位配置自定义 MTProto 服务器（地址、端口、RSA 公钥、DC 列表），保存在应用私有目录 `server-switch/servers.json`。
+- **媒体 HTTP 直连下载（`features/direct-download`）**：对 `bridge-media:` 文件先调用 `crossgram.getFileUrl` 获取 CDN 直链并发起单次 HTTP（或断点续传 `Range`）请求，失败时自动回退到 `upload.getFile` 中转下载。
+- **秒传与预检上传（`features/fast-upload`）**：上传本地文件前在后台计算 MD5、SHA-1、每 1 MiB 累计 SHA-1 与前 10 MiB MD5，调用 `crossgram.prepareMediaUploadV2` 查询 QQ 秒传及服务端 Highway 流式上传；命中秒传时直接跳过 `upload.saveFilePart`。
+- **原始动图直通（`features/raw-animation`）**：直接解码并渲染原始 GIF / APNG 动图与贴纸。
+- **戳一戳（`features/poke`）**：在支持 `poke` 的群聊/私聊头像菜单中加入「戳一戳」（单击 1 次，长按展开 1 / 5 / 10 次），详见 [`features/poke`](features/poke/README.md)。
+- **合并转发与撤回标记（`features/merged-forward` / `features/recalled`）**：支持打开合并转发记录与显示已撤回消息标记。
+- **应用内更新（`features/updater`）**：从 Crossgram Release 的 `crossgram-update.json` 检查 APK SHA-256 并在应用内下载安装，详见 [`features/updater`](features/updater/README.md)。
+- **受控 E2E 入口（`features/server-e2e`）**：默认关闭，仅在显式执行 `yarn e2e:source` 时注入，详见 [Android 服务器直接函数 E2E](docs/android-server-direct-e2e.md)。
 
-Telegram 没有「戳一戳」，修改版客户端把它加到围绕头像的菜单里：长按群消息头像打开的头像预览菜单
-会多出「戳一戳」，点一次戳一下，长按这一行原地展开 `1 次 / 5 次 / 10 次` 的连戳；无法显示预览时
-Telegram 走的小型头像菜单只加单次戳一戳。入口只在服务器回答「这个会话支持 poke」后出现，
-官方服务器上不会显示；RPC 与官方服务器兼容方式见 [`features/poke`](features/poke)。
+## 支持的上游客户端
 
-`features/server-e2e` 是默认关闭的测试 feature。只有显式运行
-`yarn e2e:source` 或 Android E2E workflow 时才会注入 debug Activity、测试签名放行和
-直接业务函数入口；常规 `patch:source` 与 release workflow 不会应用它。详细方法、命令与
-验收口径见 [Android 服务器直接函数 E2E](docs/android-server-direct-e2e.md)。E2E APK 只供
-受控 AVD 使用，不应安装到生产设备或对外分发。
+| 客户端 | 上游仓库 | 登录页服务器入口 | 发布 ABI |
+|---|---|---|---|
+| Nagram | `NextAlone/Nagram` | 自定义后端菜单 | `arm64`, `x86_64` |
+| Telegram | `DrKLO/Telegram` | 登录页服务器按钮 | `arm64`, `x86_64` |
+| Mercurygram | `Mercurygram/Mercurygram` | 登录页服务器按钮 | `arm64`, `x86_64` |
+| Nnngram | `NextAlone/Nnngram` | 右上角更多菜单 | `arm64` |
+| Nullgram | `qwq233/Nullgram` | 右上角更多菜单 | `arm64` |
+| Forkgram | `forkgram/TelegramAndroid` | 登录页服务器按钮 | `arm64` |
 
-## 已支持的上游
+## 服务器配置 JSON
 
-| 客户端 | 上游 | 登录页入口 |
-| --- | --- | --- |
-| Nagram | `NextAlone/Nagram` | 原自定义后端菜单 |
-| Telegram | `DrKLO/Telegram` | 登录页服务器按钮 |
-| Nnngram | `NextAlone/Nnngram` | 更多菜单 |
-| Nullgram | `qwq233/Nullgram` | 更多菜单 |
-| Mercurygram | `Mercurygram/Mercurygram` | 登录页服务器按钮 |
-| Forkgram | `forkgram/TelegramAndroid` | 登录页服务器按钮 |
-
-发布构建默认使用 Crossgram 项目的 Telegram API 身份；`CROSSGRAM_TELEGRAM_API_ID` 与 `CROSSGRAM_TELEGRAM_API_HASH` 可成对覆盖，缺少任一项都会明确失败。Nagram、Nnngram 自带的运行时 API 凭据切换功能仍会保留。
-
-Nnngram 与 Nullgram 上游没有公开其私有 `google-services.json`；品牌步骤会生成明确标记的本地占位配置，并关闭私有 Crashlytics 上传。Mercurygram/Forkgram 提交的 Firebase 配置只覆盖 Telegram 官方包名，因此 Crossgram 同样为品牌包生成占位配置。这些版本可以构建，但没有上游 Firebase 推送/崩溃上传能力。Telegram/Nagram 发布了匹配配置时，patch 会为新的 `.crossgram.<channel>` 包名添加 client。Telegram API ID/hash 与 Firebase 配置是两套独立凭据。
-
-## 服务器配置
-
-在登录页选择“服务器”后可以切换官方配置、已有自定义配置或新增 JSON 配置。“新增”对话框支持直接输入和从剪贴板读取。
+在登录页点击「服务器」可切换官方服务器或导入自定义 JSON（支持剪贴板粘贴）：
 
 ```json
 {
-  "name": "我的自定义服务器",
+  "name": "Crossgram",
   "enable_special_config": false,
   "host": "192.168.1.100",
   "port": 4430,
   "rsa_key": "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEA...\n-----END RSA PUBLIC KEY-----",
   "dcs": [
-    { "id": 1, "ip": "192.168.1.100", "port": 4430 },
-    { "id": 2, "ip": "192.168.1.100", "port": 4430 },
-    { "id": 3, "ip": "192.168.1.100", "port": 4430 },
-    { "id": 4, "ip": "192.168.1.100", "port": 4430 },
-    { "id": 5, "ip": "192.168.1.100", "port": 4430 }
+    { "id": 1, "ip": "192.168.1.100", "port": 4430 }
   ]
 }
 ```
 
-- `name`、`host`、`port`、`rsa_key` 必填。
-- `enable_special_config` 可选，默认 `true`；为 `false` 时禁止 Telegram 备用/special config 请求。
-- `dcs` 可选。缺少的 DC 1–5 自动使用顶层 `host`/`port` 补齐；DC ID 不可重复。
-- RSA key 必须为 PKCS#1 `BEGIN RSA PUBLIC KEY` PEM。native 层根据公钥计算 MTProto fingerprint。
-
-自定义服务器和账号槽位选择保存在应用私有目录的 `server-switch/servers.json` 中，并通过 `AtomicFile` 原子写入。每个 Telegram 账号槽位可以选择不同服务器；选择官方配置会恢复原版服务器、RSA key 和 special config 行为。
+- `name`、`host`、`port`、`rsa_key`（PKCS#1 `BEGIN RSA PUBLIC KEY` PEM）必填。
+- `enable_special_config` 默认 `true`；设为 `false` 时禁用 Telegram 官方备用配置拉取。
+- `dcs` 可选，未列出的 DC 1–5 自动使用顶层 `host` 与 `port` 补齐。
 
 ## 本地使用
-
-要求 Node.js 22+（CI 使用 Node.js 24）。
 
 ```bash
 corepack enable
@@ -87,49 +59,14 @@ yarn prepare-build --client nagram --source /path/to/Nagram --variant arm64
 yarn check
 ```
 
-`--client` 可选 `nagram`、`telegram`、`nnngram`、`nullgram`、`mercurygram`、`forkgram`。patch 和构建准备操作可重复执行；当上游语义锚点漂移、消失或出现歧义时会明确失败，避免静默修改错误位置。
+- `--client`：`nagram` | `telegram` | `nnngram` | `nullgram` | `mercurygram` | `forkgram`
+- `--brand`：`qq`（QQ · Cross）| `wechat`（微信 · Cross）| `wecom`（企业微信 · Cross）| `dingtalk`（钉钉 · Cross）| `discord`（Discord · Cross）
+- `--variant`：`arm64` | `armAll` | `x86_64` | `universal`
 
-## 品牌与架构
+## 自动构建与发布
 
-每次发布构建五个渠道。应用名称和包名后缀分别为：
+`.github/workflows/release.yml` 每日拉取各上游最新 Release/Tag，并行构建 9 个客户端/ABI 组合（每个组合生成 5 个品牌渠道 APK），汇总发布到单个 GitHub Release。
 
-| 渠道 | 应用名称 | 包名后缀 |
-| --- | --- | --- |
-| `qq` | QQ · Cross | `.crossgram.qq` |
-| `wechat` | 微信 · Cross | `.crossgram.wechat` |
-| `wecom` | 企业微信 · Cross | `.crossgram.wecom` |
-| `dingtalk` | 钉钉 · Cross | `.crossgram.dingtalk` |
-| `discord` | Discord · Cross | `.crossgram.discord` |
-
-`assets/branding` 中的五张图标由 Apple iTunes Lookup API 按官方 bundle ID 下载并固定，CI 直接使用这些官方高分辨率原图，避免并行构建时受到接口限流。架构 variant 为：
-
-| variant | ABI |
-| --- | --- |
-| `armAll` | `armeabi-v7a`, `arm64-v8a` |
-| `arm64` | `arm64-v8a` |
-| `x86_64` | `x86_64` |
-| `universal` | `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` |
-
-## 自动发布
-
-`.github/workflows/release.yml` 每天查询六个上游的 latest release；没有 release 时回退到最新 tag，再回退到默认分支。Telegram、Nagram、Mercurygram 各构建 `arm64` 与 `x86_64`，Nnngram、Nullgram、Forkgram 各构建 `arm64`，共形成 9 个相互隔离的并行 job。`fail-fast` 关闭，单个上游或 ABI 失败不会阻断其他矩阵项；只有完整生成五个品牌 APK 的 job 才会上传并进入统一 Release，同时 workflow 会保留失败状态，避免残缺发布被误报为全绿。
-
-点击页面顶部的“一键构建并发布”按钮后，在 Actions 页面点击 `Run workflow`，保持默认的 `publish=true`、`client=all` 即会构建完整 9-job 矩阵并创建一条统一 Release。也可选择单个客户端进行调试；单客户端发布同样只创建一条 Release。
-
-Nnngram、Nullgram 与 Forkgram 的公开构建链只覆盖 ARM 原生依赖，因此发布矩阵仅构建
-`arm64`；Telegram、Nagram 与 Mercurygram 额外构建 `x86_64`，供模拟器和桌面 Android 环境使用。Forkgram 同时使用 NDK r21e 构建旧版原生依赖，并使用 NDK 27.2 完成 Android external native build。
-Nullgram 原生层只接受上游 GitHub/Play 证书，构建准备阶段会
-移除这段与 Crossgram release 证书不兼容的门禁。
-
-release 签名使用以下 Actions Secrets：
-
-- `CROSSGRAM_KEYSTORE_BASE64`
-- `CROSSGRAM_KEYSTORE_PASSWORD`
-- `CROSSGRAM_KEY_ALIAS`
-- `CROSSGRAM_KEY_PASSWORD`
-- `CROSSGRAM_TELEGRAM_API_ID`（可选）
-- `CROSSGRAM_TELEGRAM_API_HASH`（可选）
-
-可选的 Telegram API ID/hash 必须成对设置，用于覆盖仓库内置的 Crossgram 默认身份。
-
-本地 keystore 和凭据位于被忽略的 `artifacts/` 目录，不应提交到 Git。
+签名与可选 API 凭据通过 Actions Secrets 配置：
+- `CROSSGRAM_KEYSTORE_BASE64`、`CROSSGRAM_KEYSTORE_PASSWORD`、`CROSSGRAM_KEY_ALIAS`、`CROSSGRAM_KEY_PASSWORD`
+- `CROSSGRAM_TELEGRAM_API_ID`、`CROSSGRAM_TELEGRAM_API_HASH`（可选，成对覆盖默认 API 身份）

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REF=${1:-main}
-# x86_64 serves the API 35 emulator; arm64 is for physical test phones.
+# x86_64 用于 API 35 模拟器，arm64 用于真机测试。
 VARIANT=${2:-x86_64}
 PATCHER_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SOURCE_ROOT="$PATCHER_ROOT/upstream/nagram-e2e"
@@ -49,16 +49,14 @@ case "$VARIANT" in
   x86_64) export CROSSGRAM_NATIVE_TARGETS=x86_64 ;;
   *) echo "Unsupported E2E variant: $VARIANT" >&2; exit 2 ;;
 esac
-# The third_party scripts take the Gradle ABI names instead.
+# third_party 脚本接收 Gradle 格式的 ABI 名称列表。
 source "$PATCHER_ROOT/scripts/ci/native-abi-list.sh"
 export ABIS="$(native_abi_list "$VARIANT")"
 export COMPILE_NATIVE=1
 
 cd "$SOURCE_ROOT"
-# Upstream commits the native archives under TMessagesProj/jni/prebuild, but
-# they are configured without the APNG decoder and the GIF parser raw animation
-# installs, so the three libraries whose configure flags decide them are rebuilt
-# from the patched sources. The legacy scripts only exist on older references.
+# 新版 Nagram 在 jni/prebuild 下提交了预编译静态库，但其中未开启 raw animation 所需的 APNG 解码器与 GIF parser；
+# 因此需从打好补丁的源码重新编译这三项依赖（旧版引用则走 `./run init libs`）。
 if [[ -f "TMessagesProj/jni/build_boringssl.sh" ]]; then
   ./run init libs libvpx
   ./run init libs dav1d

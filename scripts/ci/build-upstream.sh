@@ -18,10 +18,8 @@ mkdir -p "$PATCHER_ROOT/upstream" "$OUTPUT_ROOT"
 git clone --depth 1 --branch "$REF" "https://github.com/$REPOSITORY.git" "$SOURCE_ROOT"
 case "$CLIENT" in
   mercurygram)
-    # jni/prebuild/build_*.sh compiles every bundled static library from source
-    # for each ABI, and jni/CMakeLists.txt builds libyuv and Abseil in tree.
-    # The fork's own patchNativeSources only initializes part of that set, so
-    # the rest has to be here or the native step dies on a missing source tree.
+    # jni/prebuild/build_*.sh 会从源码编译各内置静态库，jni/CMakeLists.txt 也会在树内编译 libyuv 与 Abseil；
+    # 上游自带的 patchNativeSources 只初始化了部分子模块，其余需在此处补齐。
     git -C "$SOURCE_ROOT" submodule update --init --recursive --depth 1 \
       TMessagesProj/jni/third_party/libvpx \
       TMessagesProj/jni/third_party/ffmpeg \
@@ -33,8 +31,7 @@ case "$CLIENT" in
       TMessagesProj/jni/whisper
     ;;
   nnngram|nullgram)
-    # These forks keep an optional private Rust submodule that their public CI
-    # skips. It is not enabled by their Android Gradle files.
+    # 跳过上游未在 Gradle 中启用且公开 CI 不拉取的私有 libs/rust 子模块。
     git -C "$SOURCE_ROOT" -c submodule."libs/rust".update=none submodule update --init --recursive
     ;;
   *)
@@ -60,9 +57,7 @@ for abi in $NATIVE_ABI_LIST; do
   esac
 done
 export CROSSGRAM_NATIVE_TARGETS="${NATIVE_TARGETS[*]}"
-# Nagram's TMessagesProj/jni/third_party scripts select their ABIs from ABIS
-# and spell them the way Gradle does. A bash array cannot cross the process
-# boundary, so the list has to travel as a plain scalar.
+# Nagram 的原生构建脚本通过环境变量 ABIS 读取与 Gradle 相同格式的 ABI 列表（Bash 数组无法跨进程导出，故以普通字符串传递）。
 if [[ "$CLIENT" == "nagram" ]]; then
   export ABIS="$NATIVE_ABI_LIST"
 fi
@@ -112,32 +107,24 @@ case "$CLIENT" in
     EXTRA_GRADLE_ARGS+=("-PMG_BUILD_TAG=$VERSION")
     ;;
   forkgram)
-    # Forkgram does not declare buildNativeDeps as a dependency of every JNI
-    # merge task. Serial Gradle execution prevents the merger from scanning
-    # dav1d temporary objects while prepare.py is still replacing them.
+    # Forkgram 未将 buildNativeDeps 声明为全部 JNI 合并任务的依赖；串行执行 Gradle，防止 prepare.py 替换 dav1d 临时目标文件时与合并任务冲突。
     EXTRA_GRADLE_ARGS+=("--no-parallel")
     GRADLE_MAX_WORKERS=1
     ;;
 esac
 
 if [[ "$CLIENT" == "nagram" ]]; then
-  # Upstream now commits the native archives per ABI under
-  # TMessagesProj/jni/prebuild and the JNI build links them straight from
-  # there, but those archives are configured without the APNG decoder or the
-  # GIF parser raw animation installs, so the three libraries whose configure
-  # flags decide them are rebuilt from the patched sources. The legacy scripts
-  # only survive on the older tags a release ref can point at.
+  # 新版 Nagram 在 jni/prebuild 下提交了各 ABI 的预编译静态库，但其中未开启 raw animation 所需的 APNG 解码器与 GIF parser；
+  # 因此需从打好补丁的源码重新编译这三项依赖（旧版 tag 则走 `./run init libs`）。
   cd "$SOURCE_ROOT"
   if [[ -f "TMessagesProj/jni/build_boringssl.sh" ]]; then
-    # libvpx, dav1d and FFmpeg in this order: FFmpeg links both codec libraries
-    # and then packages the shared include tree the JNI build compiles against.
+    # 严格按 libvpx -> dav1d -> ffmpeg 顺序构建：FFmpeg 需链接前两者并打包供 JNI 编译使用的头文件目录。
     ./run init libs libvpx
     ./run init libs dav1d
     ./run init libs ffmpeg
     ./run init libs boringssl
   else
-    # FFmpeg needs the pkg-config files of the two codec libraries, so they are
-    # rebuilt for the same ABI first. ABIS is already exported above.
+    # FFmpeg 依赖 libvpx 与 dav1d 的 pkg-config 文件，需先按相同 ABIS 构建前两者。
     for step in build_libvpx.sh build_dav1d.sh build_ffmpeg.sh; do
       echo ">> prebuild $step"
       bash "TMessagesProj/jni/prebuild/$step"
@@ -149,8 +136,7 @@ for brand in qq wechat wecom dingtalk discord; do
   cd "$PATCHER_ROOT"
   corepack yarn run brand --client "$CLIENT" --source "$SOURCE_ROOT" --brand "$brand"
   cd "$SOURCE_ROOT"
-  # Keep incremental compilation caches, but remove packaged APKs so this
-  # iteration can only publish files produced for the current brand.
+  # 保留增量编译缓存，仅清理已生成的 APK，确保每轮只收集当前品牌的产物。
   while IFS= read -r -d '' apk_output; do
     find "$apk_output" -mindepth 1 -delete
   done < <(find "$SOURCE_ROOT" -type d -path '*/build/outputs/apk' -print0)

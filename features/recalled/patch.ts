@@ -8,7 +8,7 @@ import type { Upstream } from "../../src/upstreams.js";
 const tlrpcFile = "TMessagesProj/src/main/java/org/telegram/tgnet/TLRPC.java";
 const chatMessageCellFile = "TMessagesProj/src/main/java/org/telegram/ui/Cells/ChatMessageCell.java";
 
-/** Add the Crossgram recalled bit to Telegram's modern Message constructor. */
+/** 在 TLRPC.Message 与 TL_message 中注入 Crossgram 已撤回标记位。 */
 export function patchRecalledTlrpc(initial: string): string {
   let source = editDeclarationBody(
     initial,
@@ -80,7 +80,7 @@ export function patchRecalledTlrpc(initial: string): string {
   return source;
 }
 
-/** Render recalled messages with reduced opacity and a small delete icon. */
+/** 已撤回消息半透明绘制并在右下角叠加删除图标。 */
 export function patchRecalledChatMessageCell(initial: string): string {
   let source = replaceRegexOnce(
     initial,
@@ -154,9 +154,7 @@ export async function applyRecalled(root: string, _upstream: Upstream): Promise<
   const changedFiles: string[] = [];
   const tlrpcTarget = path.join(root, tlrpcFile);
   const cellTarget = path.join(root, chatMessageCellFile);
-  // All Telegram-derived Android clients currently keep these Java files. If a
-  // fork moves either class, leave it untouched rather than applying a partial
-  // patch and breaking its build.
+  // 若目标文件不存在则跳过，避免半截补丁破坏编译。
   const filesPresent = await Promise.all([
     access(tlrpcTarget).then(() => true, () => false),
     access(cellTarget).then(() => true, () => false),

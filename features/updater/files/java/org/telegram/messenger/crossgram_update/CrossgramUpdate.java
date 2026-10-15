@@ -32,28 +32,20 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Crossgram build updates for the patched Telegram Android forks.
+ * Crossgram 客户端内更新器。
  *
- * The upstream updaters of the supported forks point at their own release
- * feeds (their metadata channel, their own GitHub releases, ...), so an
- * installed Crossgram APK never learns about a newer nightly. This runtime
- * asks the Crossgram release manifest instead, matches the manifest entry
- * against the APK that is actually installed, and downloads and installs the
- * newer APK from the release asset.
- *
- * The identity of the running build comes from the package name (the branding
- * patch appends ".crossgram.<brand>") and from the device ABI, so one manifest
- * entry matches exactly one published asset.
+ * 各上游分支自带的更新检查指向各自的发布源，无法感知 Crossgram 构建。
+ * 此处拉取 Crossgram 发布清单，按包名中的 `.crossgram.<brand>` 后缀与设备 ABI 匹配产物，校验已安装 APK 哈希后下载并调用系统安装器。
  */
 public final class CrossgramUpdate {
-    /** The upstream fork this build was patched from; replaced by the patcher. */
+    /** 上游客户端标识，打包打补丁时替换为实际 id。 */
     private static final String CLIENT = "nagram";
 
-    /** Manifest published with every unified Android release. */
+    /** 统一发布清单地址。 */
     private static final String MANIFEST_URL =
             "https://github.com/crossgram-project/crossgram-android/releases/latest/download/crossgram-update.json";
 
-    /** The brand patch suffixes every branded application id with this marker. */
+    /** 品牌补丁追加在 applicationId 末尾的标识前缀。 */
     private static final String BRAND_MARKER = ".crossgram.";
 
     private static final String PREFS_NAME = "crossgram_update";
@@ -62,14 +54,14 @@ public final class CrossgramUpdate {
     private static final String KEY_PROMPTED_BUILD = "prompted_build";
     private static final String KEY_SKIPPED_BUILD = "skipped_build";
 
-    /** Broadcast the installer session reports its status to. */
+    /** PackageInstaller 会话状态回调广播。 */
     private static final String INSTALL_ACTION = "org.telegram.messenger.crossgram_update.INSTALL_STATUS";
-    /** Context.RECEIVER_NOT_EXPORTED, spelled out for forks that compile against an older SDK. */
+    /** Context.RECEIVER_NOT_EXPORTED 常量值，兼容旧 compileSdk。 */
     private static final int RECEIVER_NOT_EXPORTED = 0x4;
-    /** PendingIntent.FLAG_MUTABLE: the installer fills the status extras in. */
+    /** PendingIntent.FLAG_MUTABLE 常量值，供 PackageInstaller 填入状态 extra。 */
     private static final int FLAG_MUTABLE = 1 << 25;
 
-    /** Automatic checks are spaced out; the upstream entry point calls us on every resume. */
+    /** 自动检查最小间隔；上游每次 onResume 都会触发检查入口。 */
     private static final long AUTO_CHECK_INTERVAL_MS = 12L * 60 * 60 * 1000;
     private static final int CONNECT_TIMEOUT_MS = 20 * 1000;
     private static final int READ_TIMEOUT_MS = 30 * 1000;
@@ -98,8 +90,7 @@ public final class CrossgramUpdate {
     }
 
     /**
-     * Entry point of the patched checkAppUpdate(). Runs on the calling thread
-     * and reports back through onDone (optional) on the UI thread.
+     * checkAppUpdate() 补丁入口；后台拉取清单，结束后在主线程回调 onDone。
      */
     public static void check(final Activity activity, final boolean force, final Runnable onDone) {
         final Context context = ApplicationLoader.applicationContext;
@@ -120,8 +111,7 @@ public final class CrossgramUpdate {
             try {
                 final JSONObject manifest = fetchManifest(MANIFEST_URL);
                 prefs.edit().putLong(KEY_CHECKED_AT, System.currentTimeMillis()).apply();
-                // Every asset of a release comes from the same workflow run, so the
-                // build number is recorded once, on the manifest.
+                // 同一发布的全部产物来自同一次构建，构建号统一记在清单顶层。
                 final int build = manifest.optInt("build");
                 final CrossgramUpdatePolicy.Asset entry = CrossgramUpdatePolicy.select(assets(manifest), CLIENT,
                         CrossgramUpdatePolicy.variant(Build.SUPPORTED_ABIS),
@@ -159,7 +149,7 @@ public final class CrossgramUpdate {
         return result;
     }
 
-    /** The raw manifest object of the selected asset, for the fields the policy does not need. */
+    /** 取回选中产物对应的原始 JSON 项，用于读取 version/size 等展示字段。 */
     private static JSONObject findAsset(JSONObject manifest, CrossgramUpdatePolicy.Asset entry) {
         final JSONArray assets = manifest.optJSONArray("assets");
         if (assets != null) {
@@ -171,7 +161,7 @@ public final class CrossgramUpdate {
         return new JSONObject();
     }
 
-    /** SHA-256 of the installed APK, cached until that file changes. */
+    /** 计算当前已安装 APK 的 SHA-256，按文件长度与修改时间缓存。 */
     private static String installedApkHash(Context context, SharedPreferences prefs) {
         final File apk = new File(context.getApplicationInfo().sourceDir);
         final String stamp = apk.length() + ":" + apk.lastModified();
@@ -208,7 +198,7 @@ public final class CrossgramUpdate {
                         .setNeutralButton(SKIP_THIS_BUILD, (dialog, which) ->
                                 prefs.edit().putInt(KEY_SKIPPED_BUILD, build).apply())
                         .show();
-                // Only a dialog that was actually shown counts as offered.
+                // 仅在弹窗实际展示后才记录已提示。
                 prefs.edit().putInt(KEY_PROMPTED_BUILD, build).apply();
             } catch (Exception error) {
                 FileLog.e(error);
@@ -308,11 +298,8 @@ public final class CrossgramUpdate {
     }
 
     /**
-     * Installs the downloaded APK through a PackageInstaller session. Unless
-     * this app is the installer of record, the session parks in
-     * STATUS_PENDING_USER_ACTION and hands back the system confirmation screen,
-     * which has to be started from here; a failed session falls back to
-     * opening the release asset in the browser.
+     * 通过 PackageInstaller 会话安装 APK。
+     * 非系统记录的安装来源会停在 STATUS_PENDING_USER_ACTION，需由此处拉起系统确认界面；失败时回退到浏览器打开下载链接。
      */
     private static void install(Activity activity, File apk, String url) {
         final Context context = ApplicationLoader.applicationContext;
@@ -370,7 +357,7 @@ public final class CrossgramUpdate {
                             Browser.openUrl(activity, url);
                         }
                     }
-                    // The session reports again once the user has decided.
+                    // 等待用户在系统确认界面操作后的二次状态广播。
                     return;
                 }
                 unregister(c, this);
@@ -443,7 +430,7 @@ public final class CrossgramUpdate {
                 int read;
                 while ((read = input.read(buffer)) >= 0) body.write(buffer, 0, read);
             }
-            // Decode once: a chunk boundary may split a multi-byte character of the notes.
+            // 读完全部字节再一次性按 UTF-8 解码，避免分块边界截断多字节字符。
             return new String(body.toByteArray(), "UTF-8");
         } finally {
             connection.disconnect();

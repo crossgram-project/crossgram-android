@@ -199,8 +199,7 @@ $1`,
             crossgramDirectTransfer = null;
         }${body}`,
   );
-  // Trees patched before the transfer learned the document size still open
-  // it blind; hand them the size so a short body can no longer count as EOF.
+  // 兼容旧版补丁中未传入 totalBytesCount 的调用，确保直连传输能校验文件总长度。
   source = source.replace(
     "crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url);",
     "crossgramDirectTransfer = CrossgramDirectDownload.open(resolved.url, totalBytesCount);",
@@ -256,12 +255,9 @@ $1`,
 }
 
 /**
- * The relay publishes the bridge photo `m` preview with the original's byte
- * count because QQ reports zero bytes for most native previews. Upstream only
- * ends a sized file when that count is reached, so the relay's short final
- * part parks every later chunk forever and the operation keeps its queue slot
- * until the app restarts. End such a file at its short part, and keep the
- * finished (shorter) preview instead of deleting it as a size mismatch.
+ * 因 QQ 预览常上报 0 字节，relay 用原图大小作为图片 `m` 预览的声明大小。
+ * 上游顺序拼装器必须读满声明大小才会结束，导致短尾块之后的分块请求永久挂起并占死下载队列槽位；
+ * 此处在收到短尾块时直接结束下载，并保留实际较短的预览文件而不按大小不符删除。
  */
 function patchUpperBoundSizedFiles(initial: string): string {
   let source = replaceRegexOnce(

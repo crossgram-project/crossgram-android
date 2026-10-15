@@ -12,7 +12,7 @@ import org.telegram.tgnet.TLRPC;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Crossgram's optional direct-download transport. Every failure falls back to upload.getFile. */
+/** Crossgram 可选直连下载通道；任何异常均自动回退到 upload.getFile。 */
 public final class CrossgramDirectDownload {
     public static final String TRANSPORT_DIRECT = "direct";
     public static final String TRANSPORT_RELAY = "relay";
@@ -56,10 +56,8 @@ public final class CrossgramDirectDownload {
                 && !(location instanceof TLRPC.TL_inputPhotoFileLocation)) {
             return false;
         }
-        // The relay's generated `m` preview is stored locally and has no QQ CDN URL.
-        // Older relays returned the original image URL here, which produced a valid
-        // file header followed by a truncated image when Android requested the
-        // advertised preview size. Keep previews on upload.getFile on every version.
+        // relay 本地生成的 `m` 级缩略图没有 QQ CDN 地址。
+        // 旧版 relay 曾误返回原图地址，导致客户端按预览大小截断读取后只得到半截图片；因此 `m` 预览始终走 upload.getFile。
         if (location instanceof TLRPC.TL_inputPhotoFileLocation
                 && "m".equals(location.thumb_size)) {
             return false;
@@ -67,7 +65,7 @@ public final class CrossgramDirectDownload {
         return supportsFileReference(location.file_reference);
     }
 
-    /** Returns true for bridge-backed photos/documents before an InputFileLocation is constructed. */
+    /** 在构造 InputFileLocation 前提前判断照片或文档是否来自 bridge。 */
     public static boolean supports(Object parentObject) {
         if (parentObject instanceof TLRPC.Photo) {
             return supportsFileReference(((TLRPC.Photo) parentObject).file_reference);
@@ -83,8 +81,7 @@ public final class CrossgramDirectDownload {
     }
 
     /**
-     * A bridge file that never tries direct HTTP (the photo `m` preview). The
-     * operation reports relay for it so the message cell still shows a badge.
+     * 判断是否为固定走中转的 bridge 文件（如图片 `m` 预览），以便消息气泡仍能显示「中转」角标。
      */
     public static boolean isRelayOnlyBridgeFile(TLRPC.InputFileLocation location) {
         return (location instanceof TLRPC.TL_inputDocumentFileLocation
@@ -94,27 +91,24 @@ public final class CrossgramDirectDownload {
     }
 
     /**
-     * Whether the advertised size of this bridge file is only an upper bound
-     * (the photo `m` preview; see CrossgramBridgeFileReference).
+     * 判断该 bridge 文件声明的大小是否仅为上限值（即图片 `m` 预览，详见 CrossgramBridgeFileReference）。
      *
-     * Telegram's sequential assembler only ends a sized file once that count is
-     * reached: the relay's short final part leaves every later chunk parked on
-     * an offset that never arrives, and the stuck operation keeps its
-     * download-queue slot until the app restarts.
+     * Telegram 顺序拼装器对已知大小的文件必须读满声明字节数才会结束；
+     * 若 relay 提前返回短尾块，后续请求会一直卡在不会到达的偏移量上并占死下载队列槽位，直到应用重启。
      */
     public static boolean hasUpperBoundSize(TLRPC.InputFileLocation location) {
         return location != null && CrossgramBridgeFileReference.hasUpperBoundSize(
                 location.file_reference, location instanceof TLRPC.TL_inputPhotoFileLocation, location.thumb_size);
     }
 
-    /** True when a relay part shorter than requested is the end of an upper-bound-sized file. */
+    /** 对大小仅为上限值的文件，当 relay 返回的分块小于请求长度时即视为到达文件末尾。 */
     public static boolean endsAtShortPart(TLRPC.InputFileLocation location, long received, long requested) {
         return location != null && CrossgramBridgeFileReference.endsAtShortPart(
                 location.file_reference, location instanceof TLRPC.TL_inputPhotoFileLocation, location.thumb_size,
                 received, requested);
     }
 
-    /** Keeps a finished upper-bound-sized preview instead of deleting it as a size mismatch. */
+    /** 保留已下载完成的上限大小预览图，避免因实际长度小于声明长度而被当成损坏文件删掉。 */
     public static boolean acceptsShorterFinalFile(TLRPC.InputFileLocation location, long advertised, long actual) {
         return location != null && CrossgramBridgeFileReference.acceptsShorterFile(
                 location.file_reference, location instanceof TLRPC.TL_inputPhotoFileLocation, location.thumb_size,
@@ -126,7 +120,7 @@ public final class CrossgramDirectDownload {
                 + " bytes=" + downloaded + " advertised=" + advertised);
     }
 
-    /** Clears a stale result and exposes URL resolution to the message-cell indicator. */
+    /** 清除旧状态并将当前文件标记为「连接中」，供消息气泡角标展示。 */
     public static void begin(String fileName) {
         setReportedTransport(fileName, TRANSPORT_RESOLVING);
     }
@@ -162,7 +156,7 @@ public final class CrossgramDirectDownload {
         return open(url, 0);
     }
 
-    /** Opens a transfer that must deliver {@code expectedLength} bytes before it counts as complete. */
+    /** 打开直连传输并指定期望总字节数 {@code expectedLength}，未读满前不视为正常结束。 */
     public static Transfer open(String url, long expectedLength) {
         try {
             return new Transfer(new CrossgramDirectHttp.Transfer(url, expectedLength));
