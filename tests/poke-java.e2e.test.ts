@@ -72,4 +72,19 @@ describe("Android poke helper e2e", () => {
     // The rejected account keeps the row hidden even after another menu is built.
     expect(report).toContain("rows-rejected=[];");
   }, 120_000);
+
+  it("emits no call into the desugared ConcurrentHashMap.newKeySet", async () => {
+    // minSdk 23 devices resolve that call through core library desugaring
+    // (j$.util.concurrent.ConcurrentHashMap). One nagram build shipped a desugar library
+    // without the method, so CrossgramPoke's <clinit> died and ChatActivity.onResume threw
+    // NoClassDefFoundError on every chat open. The helper must stay on the plain
+    // ConcurrentHashMap constructor, which exists on every API level.
+    const { stdout } = await exec("javap", [
+      "-p", "-c",
+      "-classpath", path.join(directory, "out"),
+      "org.telegram.messenger.crossgram_poke.CrossgramPoke",
+    ], { maxBuffer: 1024 * 1024 });
+    expect(stdout).not.toContain("newKeySet");
+    expect(stdout).toContain("java/util/Collections.newSetFromMap");
+  });
 });

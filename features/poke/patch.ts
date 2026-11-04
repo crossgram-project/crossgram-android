@@ -64,10 +64,14 @@ export function patchAvatarPreviewer(initial: string): string {
 /** 在聊天界面进入时记录当前会话，并为降级头像菜单挂入「戳一戳」入口。 */
 export function patchChatActivity(initial: string): string {
   let source = addJavaImport(initial, pokeImport, chatActivityFile);
+  source = addJavaImport(source, "org.telegram.messenger.FileLog", chatActivityFile);
   source = replaceRegexIfUnique(
     source,
     /(^[ \t]*public\s+void\s+onResume\s*\(\s*\)\s*\{[\r\n\s]*super\.onResume\(\);[ \t]*$)/m,
-    "$1\n        CrossgramPoke.setConversation(currentAccount, dialog_id);",
+    // 入口只是锦上添花：helper 的静态初始化失败时（例如设备侧 desugar 库不认某个 API）
+    // 也只应丢掉戳一戳菜单，不能让打开任何聊天都崩掉。
+    "$1\n        try {\n            CrossgramPoke.setConversation(currentAccount, dialog_id);"
+      + "\n        } catch (Throwable t) {\n            FileLog.e(t);\n        }",
     "CrossgramPoke.setConversation(currentAccount, dialog_id);",
   );
   source = editDeclarationBody(

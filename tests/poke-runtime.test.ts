@@ -34,4 +34,14 @@ describe("poke Android runtime", () => {
       expect(path.isAbsolute(relative)).toBe(false);
     }
   });
+
+  it("builds its concurrent sets without the desugared newKeySet factory", () => {
+    const runtime = readFileSync(path.resolve(helper), "utf8");
+    // A 10-23 logcat from a nagram build showed j$.util.concurrent.ConcurrentHashMap without
+    // newKeySet: the helper's <clinit> failed and opening any chat threw NoClassDefFoundError,
+    // because ChatActivity.onResume touches the class. Only the plain constructor is safe.
+    expect(runtime).not.toContain("ConcurrentHashMap.newKeySet()");
+    expect(runtime).toContain("Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>())");
+    expect(runtime).toContain("Collections.newSetFromMap(new ConcurrentHashMap<Integer, Boolean>())");
+  });
 });

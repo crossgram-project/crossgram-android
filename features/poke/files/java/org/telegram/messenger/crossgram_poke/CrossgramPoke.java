@@ -17,6 +17,7 @@ import org.telegram.ui.ActionBar.ActionBarPopupWindow;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.ItemOptions;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.Set;
@@ -41,8 +42,13 @@ public final class CrossgramPoke {
     private static final long PROBE_RETRY_MS = 60 * 1000L;
 
     private static final Map<String, Integer> MAX_COUNTS = new ConcurrentHashMap<>();
-    private static final Set<String> REJECTED = ConcurrentHashMap.newKeySet();
-    private static final Set<Integer> UNAVAILABLE_ACCOUNTS = ConcurrentHashMap.newKeySet();
+    // ConcurrentHashMap.newKeySet 只有 minSdk 24 才自带；脱糖（core library desugaring）会把它改写成
+    // j$.util.concurrent.ConcurrentHashMap.newKeySet，一旦设备侧打包的脱糖库不认这个调用，本类的静态初始化
+    // 就会失败，之后每次打开聊天都抛 NoClassDefFoundError。下面的工厂只依赖 ConcurrentHashMap 构造函数（API 1）。
+    private static final Set<String> REJECTED =
+            Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
+    private static final Set<Integer> UNAVAILABLE_ACCOUNTS =
+            Collections.newSetFromMap(new ConcurrentHashMap<Integer, Boolean>());
     private static final Map<String, Long> PROBED_AT = new ConcurrentHashMap<>();
     private static final Map<View, Object> EXPANDED_FOR = new WeakHashMap<>();
 

@@ -74,7 +74,12 @@ describe("poke Android patch", () => {
   it("wires the chat screen to the conversation and to the fallback menu", () => {
     const patched = patchChatActivity(chatActivity);
     expect(patched).toContain("import org.telegram.messenger.crossgram_poke.CrossgramPoke;");
-    expect(patched).toContain("super.onResume();\n        CrossgramPoke.setConversation(currentAccount, dialog_id);\n        checkShowBlur(false);");
+    expect(patched).toContain("import org.telegram.messenger.FileLog;");
+    // A helper whose class init fails must only cost the poke row, not the chat screen.
+    expect(patched).toContain(
+      "super.onResume();\n        try {\n            CrossgramPoke.setConversation(currentAccount, dialog_id);"
+        + "\n        } catch (Throwable t) {\n            FileLog.e(t);\n        }\n        checkShowBlur(false);",
+    );
     expect(patched.match(/CrossgramPoke.setConversation\(currentAccount, dialog_id\);/g)).toHaveLength(1);
     // Upstream builds that menu as one fluent chain, so the poke row has to be
     // inserted without breaking it: the helper hands the same ItemOptions back.
